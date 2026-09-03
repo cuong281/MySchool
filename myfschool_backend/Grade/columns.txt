@@ -1,0 +1,16 @@
+COLUMN_NAME                                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------
+FileID                                                                                                                          
+IssuedByUserID                                                                                                                  
+IssuedDate                                                                                                                      
+RecordID                                                                                                                        
+SchoolYearID                                                                                                                    
+Semester                                                                                                                        
+StudentID                                                                                                                       
+TypeID                                                                                                                          
+CreatedAt                                                                                                                       
+UpdatedAt                                                                                                                       
+DecisionNumber                                                                                                                  
+Content                                                                                                                         
+
+(12 rows affected)

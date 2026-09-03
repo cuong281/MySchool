@@ -1,0 +1,111 @@
+Changed database context to 'GradeDB'.
+
+(0 rows affected)
+
+(0 rows affected)
+
+(0 rows affected)
+
+(0 rows affected)
+
+(0 rows affected)
+
+(0 rows affected)
+
+(0 rows affected)
+
+(0 rows affected)
+
+(6 rows affected)
+
+(2 rows affected)
+
+(7 rows affected)
+
+(5 rows affected)
+
+(2 rows affected)
+
+(0 rows affected)
+
+(0 rows affected)
+
+(4 rows affected)
+
+(2 rows affected)
+Checking identity information: current identity value '0'.
+DBCC execution completed. If DBCC printed error messages, contact your system administrator.
+Checking identity information: current identity value '0'.
+DBCC execution completed. If DBCC printed error messages, contact your system administrator.
+Checking identity information: current identity value '0'.
+DBCC execution completed. If DBCC printed error messages, contact your system administrator.
+Checking identity information: current identity value '0'.
+DBCC execution completed. If DBCC printed error messages, contact your system administrator.
+Checking identity information: current identity value '0'.
+DBCC execution completed. If DBCC printed error messages, contact your system administrator.
+Checking identity information: current identity value '6'.
+DBCC execution completed. If DBCC printed error messages, contact your system administrator.
+Checking identity information: current identity value '5'.
+DBCC execution completed. If DBCC printed error messages, contact your system administrator.
+Checking identity information: current identity value '0'.
+DBCC execution completed. If DBCC printed error messages, contact your system administrator.
+Checking identity information: current identity value '5'.
+DBCC execution completed. If DBCC printed error messages, contact your system administrator.
+Checking identity information: current identity value '1'.
+DBCC execution completed. If DBCC printed error messages, contact your system administrator.
+Checking identity information: current identity value '6'.
+DBCC execution completed. If DBCC printed error messages, contact your system administrator.
+Checking identity information: current identity value '4'.
+DBCC execution completed. If DBCC printed error messages, contact your system administrator.
+Checking identity information: current identity value '1'.
+DBCC execution completed. If DBCC printed error messages, contact your system administrator.
+Checking identity information: current identity value '0'.
+DBCC execution completed. If DBCC printed error messages, contact your system administrator.
+Checking identity information: current identity value '0'.
+DBCC execution completed. If DBCC printed error messages, contact your system administrator.
+Checking identity information: current identity value '3'.
+DBCC execution completed. If DBCC printed error messages, contact your system administrator.
+Checking identity information: current identity value '2'.
+DBCC execution completed. If DBCC printed error messages, contact your system administrator.
+
+(2 rows affected)
+
+(2 rows affected)
+
+(5 rows affected)
+
+(7 rows affected)
+Msg 515, Level 16, State 2, Server DESKTOP-50TUMS0, Line 7
+Cannot insert the value NULL into column 'IsEmailVerified', table 'GradeDB.dbo.Users'; column does not allow nulls. INSERT fails.
+The statement has been terminated.
+
+(2 rows affected)
+Msg 547, Level 16, State 1, Server DESKTOP-50TUMS0, Line 3
+The INSERT statement conflicted with the FOREIGN KEY constraint "FKaengiastf6jkwmemijj3g2onv". The conflict occurred in database "GradeDB", table "dbo.Users", column 'UserID'.
+The statement has been terminated.
+
+(9 rows affected)
+
+(6 rows affected)
+
+(9 rows affected)
+Msg 547, Level 16, State 1, Server DESKTOP-50TUMS0, Line 3
+The INSERT statement conflicted with the FOREIGN KEY constraint "FK5n949oqf2gmsx92ub49brwbw1". The conflict occurred in database "GradeDB", table "dbo.Users", column 'UserID'.
+The statement has been terminated.
+Msg 547, Level 16, State 1, Server DESKTOP-50TUMS0, Line 3
+The INSERT statement conflicted with the FOREIGN KEY constraint "FKb8yyw904pwbmlmgl9wk6x6fob". The conflict occurred in database "GradeDB", table "dbo.Students", column 'StudentID'.
+The statement has been terminated.
+Msg 547, Level 16, State 1, Server DESKTOP-50TUMS0, Line 3
+The INSERT statement conflicted with the FOREIGN KEY constraint "FKkubj6o6g9l0a113ivsu6fbrtf". The conflict occurred in database "GradeDB", table "dbo.Files", column 'FileID'.
+The statement has been terminated.
+Msg 547, Level 16, State 1, Server DESKTOP-50TUMS0, Line 3
+The INSERT statement conflicted with the FOREIGN KEY constraint "FKkh8am1yhqr4yg7l4gq9rng4u7". The conflict occurred in database "GradeDB", table "dbo.Users", column 'UserID'.
+The statement has been terminated.
+
+(4 rows affected)
+Msg 547, Level 16, State 1, Server DESKTOP-50TUMS0, Line 3
+The INSERT statement conflicted with the FOREIGN KEY constraint "FKsjngug233v4j8kdpvsf79u3xw". The conflict occurred in database "GradeDB", table "dbo.Users", column 'UserID'.
+The statement has been terminated.
+Msg 547, Level 16, State 1, Server DESKTOP-50TUMS0, Line 3
+The INSERT statement conflicted with the FOREIGN KEY constraint "FK4lmbe2ocxre4hv6cgwdevpbnk". The conflict occurred in database "GradeDB", table "dbo.Files", column 'FileID'.
+The statement has been terminated.

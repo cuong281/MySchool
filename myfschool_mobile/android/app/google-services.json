@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "608923160386",
+    "project_id": "flutter-pro-firebase-654cf",
+    "storage_bucket": "flutter-pro-firebase-654cf.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:608923160386:android:e636efc4b2708eb55302db",
+        "android_client_info": {
+          "package_name": "com.example.myfschools"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB-_n8JWAS2WW6g4V2yi9L2N7xAJWyf7bY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

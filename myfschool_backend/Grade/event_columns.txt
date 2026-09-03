@@ -1,0 +1,14 @@
+COLUMN_NAME                                                                                                                     
+--------------------------------------------------------------------------------------------------------------------------------
+BannerFileID                                                                                                                    
+CreatedByUserID                                                                                                                 
+EventID                                                                                                                         
+EndAt                                                                                                                           
+StartAt                                                                                                                         
+Category                                                                                                                        
+Status                                                                                                                          
+Title                                                                                                                           
+Description                                                                                                                     
+Location                                                                                                                        
+
+(10 rows affected)
