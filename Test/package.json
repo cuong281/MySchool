@@ -1,0 +1,12 @@
+{
+  "name": "myschool-qa-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node automated/run-all.mjs",
+    "test:api": "node automated/api-tests.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
