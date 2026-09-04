@@ -13,6 +13,7 @@ GO
 -- =============================================
 -- Xoa bang cu theo thu tu phu thuoc (Reverse Order)
 -- =============================================
+IF OBJECT_ID('dbo.Messages', 'U') IS NOT NULL DROP TABLE dbo.Messages;
 IF OBJECT_ID('dbo.Events', 'U') IS NOT NULL DROP TABLE dbo.Events;
 IF OBJECT_ID('dbo.News', 'U') IS NOT NULL DROP TABLE dbo.News;
 IF OBJECT_ID('dbo.RewardDisciplines', 'U') IS NOT NULL DROP TABLE dbo.RewardDisciplines;
@@ -26,9 +27,10 @@ IF OBJECT_ID('dbo.Students', 'U') IS NOT NULL DROP TABLE dbo.Students;
 IF OBJECT_ID('dbo.SchoolClasses', 'U') IS NOT NULL DROP TABLE dbo.SchoolClasses;
 IF OBJECT_ID('dbo.TimeSlots', 'U') IS NOT NULL DROP TABLE dbo.TimeSlots;
 IF OBJECT_ID('dbo.Subjects', 'U') IS NOT NULL DROP TABLE dbo.Subjects;
-IF OBJECT_ID('dbo.SchoolYears', 'U') IS NOT NULL DROP TABLE dbo.SchoolYears;
-IF OBJECT_ID('dbo.Teachers', 'U') IS NOT NULL DROP TABLE dbo.Teachers;
+IF OBJECT_ID('dbo.RefreshTokens', 'U') IS NOT NULL DROP TABLE dbo.RefreshTokens;
 IF OBJECT_ID('dbo.Files', 'U') IS NOT NULL DROP TABLE dbo.Files;
+IF OBJECT_ID('dbo.User_Roles', 'U') IS NOT NULL DROP TABLE dbo.User_Roles;
+IF OBJECT_ID('dbo.Teachers', 'U') IS NOT NULL DROP TABLE dbo.Teachers;
 IF OBJECT_ID('dbo.Users', 'U') IS NOT NULL DROP TABLE dbo.Users;
 IF OBJECT_ID('dbo.Roles', 'U') IS NOT NULL DROP TABLE dbo.Roles;
 GO
@@ -69,6 +71,17 @@ CREATE TABLE dbo.User_Roles (
     CONSTRAINT FK_UserRoles_Roles FOREIGN KEY (RoleID) REFERENCES Roles(RoleID)
 );
 
+CREATE TABLE dbo.RefreshTokens (
+    TokenID         BIGINT IDENTITY(1,1) PRIMARY KEY,
+    UserID          INT                 NOT NULL,
+    TokenHash       NVARCHAR(255)       NOT NULL UNIQUE,
+    ExpiryDate      DATETIME2           NOT NULL,
+    IsRevoked       BIT                 NOT NULL DEFAULT 0,
+    CreatedAt       DATETIME2           NOT NULL DEFAULT SYSUTCDATETIME(),
+    CONSTRAINT FK_RefreshTokens_Users FOREIGN KEY (UserID) REFERENCES Users(UserID)
+);
+CREATE INDEX IX_RefreshTokens_User ON dbo.RefreshTokens(UserID);
+
 -- =============================================
 -- 2. Files & Infrastructure
 -- =============================================
@@ -85,11 +98,14 @@ CREATE TABLE dbo.Files (
 
 CREATE TABLE dbo.Teachers (
     TeacherID       INT IDENTITY(1,1)   PRIMARY KEY,
+    UserID          INT                 NULL UNIQUE,
     FullName        NVARCHAR(100)       NOT NULL,
     Email           NVARCHAR(255)       NULL,
     PhoneNumber     NVARCHAR(20)        NULL,
     AvatarUrl       NVARCHAR(500)       NULL,
-    Status          NVARCHAR(20)        NOT NULL DEFAULT 'ACTIVE'
+    Status          NVARCHAR(20)        NOT NULL DEFAULT 'ACTIVE',
+    IsPhonePublic   BIT                 NOT NULL DEFAULT 0,
+    CONSTRAINT FK_Teachers_Users FOREIGN KEY (UserID) REFERENCES Users(UserID)
 );
 
 CREATE TABLE dbo.Subjects (
@@ -324,6 +340,22 @@ CREATE TABLE dbo.News (
     CreatedAt       DATETIME2           NOT NULL DEFAULT SYSUTCDATETIME(),
     UpdatedAt       DATETIME2           NOT NULL DEFAULT SYSUTCDATETIME()
 );
+
+-- =============================================
+-- 10. Messages (In-App Messaging & Chat)
+-- =============================================
+CREATE TABLE dbo.Messages (
+    MessageID       INT IDENTITY(1,1)   PRIMARY KEY,
+    SenderUserID    INT                 NOT NULL REFERENCES dbo.Users(UserID),
+    ReceiverUserID  INT                 NOT NULL REFERENCES dbo.Users(UserID),
+    Content         NVARCHAR(2000)      NOT NULL,
+    SentAt          DATETIME2           NOT NULL DEFAULT SYSUTCDATETIME(),
+    IsRead          BIT                 NOT NULL DEFAULT 0,
+    ReadAt          DATETIME2           NULL
+);
+CREATE INDEX IX_Messages_Sender ON dbo.Messages(SenderUserID);
+CREATE INDEX IX_Messages_Receiver ON dbo.Messages(ReceiverUserID);
+CREATE INDEX IX_Messages_Pair ON dbo.Messages(SenderUserID, ReceiverUserID, SentAt);
 GO
 
 PRINT N'Database schema created successfully!';

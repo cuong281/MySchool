@@ -13,6 +13,7 @@ public interface ClassScheduleRepository extends JpaRepository<ClassSchedule, In
 
     @Query("""
         SELECT cs FROM ClassSchedule cs
+        JOIN FETCH cs.schoolClass
         JOIN FETCH cs.subject
         JOIN FETCH cs.teacher
         JOIN FETCH cs.timeSlot
@@ -20,4 +21,15 @@ public interface ClassScheduleRepository extends JpaRepository<ClassSchedule, In
         ORDER BY cs.dayOfWeek ASC, cs.timeSlot.slotNumber ASC
     """)
     List<ClassSchedule> findBySchoolClassIdWithDetails(@Param("classId") Integer classId);
+
+    @Query("""
+        SELECT cs FROM ClassSchedule cs
+        JOIN FETCH cs.schoolClass
+        JOIN FETCH cs.subject
+        JOIN FETCH cs.teacher
+        JOIN FETCH cs.timeSlot
+        WHERE cs.teacher.id = :teacherId
+        ORDER BY cs.dayOfWeek ASC, cs.timeSlot.slotNumber ASC
+    """)
+    List<ClassSchedule> findByTeacherIdWithDetails(@Param("teacherId") Integer teacherId);
 }

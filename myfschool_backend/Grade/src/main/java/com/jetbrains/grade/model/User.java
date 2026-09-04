@@ -13,7 +13,7 @@ import lombok.NoArgsConstructor;
 @Entity
 @Table(name = "Users")
 @Data
-@EqualsAndHashCode(exclude = {"roles", "student"})
+@EqualsAndHashCode(exclude = {"roles", "student", "teacher"})
 @NoArgsConstructor
 @AllArgsConstructor
 public class User {
@@ -69,4 +69,7 @@ public class User {
 
     @OneToOne(mappedBy = "user")
     private Student student;
+
+    @OneToOne(mappedBy = "user")
+    private Teacher teacher;
 }

@@ -24,4 +24,6 @@ public class SchedulePeriodDTO {
     private String subjectName;
     private String teacherName;
     private String roomName;
+    private Integer classId;
+    private String className;
 }

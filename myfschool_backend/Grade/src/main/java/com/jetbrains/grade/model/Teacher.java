@@ -3,11 +3,13 @@ package com.jetbrains.grade.model;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
 import lombok.NoArgsConstructor;
 
 @Entity
 @Table(name = "Teachers")
 @Data
+@EqualsAndHashCode(exclude = "user")
 @NoArgsConstructor
 @AllArgsConstructor
 public class Teacher {
@@ -16,6 +18,10 @@ public class Teacher {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "TeacherID")
     private Integer id;
+
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "UserID", unique = true)
+    private User user;
 
     @Column(name = "FullName", nullable = false, length = 100)
     private String fullName;
@@ -31,4 +37,7 @@ public class Teacher {
 
     @Column(name = "Status", length = 20)
     private String status = "ACTIVE"; // ACTIVE, INACTIVE
+
+    @Column(name = "IsPhonePublic")
+    private Boolean isPhonePublic = false;
 }

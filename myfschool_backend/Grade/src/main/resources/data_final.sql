@@ -27,6 +27,7 @@ DELETE FROM dbo.Subjects;
 DELETE FROM dbo.Teachers;
 DELETE FROM dbo.SchoolYears;
 DELETE FROM dbo.Files;
+DELETE FROM dbo.RefreshTokens;
 DELETE FROM dbo.User_Roles;
 DELETE FROM dbo.Users;
 DELETE FROM dbo.Roles;
@@ -49,6 +50,7 @@ DBCC CHECKIDENT ('dbo.Subjects', RESEED, 0);
 DBCC CHECKIDENT ('dbo.Teachers', RESEED, 0);
 DBCC CHECKIDENT ('dbo.SchoolYears', RESEED, 0);
 DBCC CHECKIDENT ('dbo.Files', RESEED, 0);
+DBCC CHECKIDENT ('dbo.RefreshTokens', RESEED, 0);
 DBCC CHECKIDENT ('dbo.Users', RESEED, 0);
 DBCC CHECKIDENT ('dbo.Roles', RESEED, 0);
 GO
@@ -57,45 +59,63 @@ GO
 SET IDENTITY_INSERT dbo.Roles ON;
 INSERT INTO dbo.Roles (RoleID, RoleName, Description) VALUES
 (1, N'Admin',      N'Quan tri vien he thong'),
-(2, N'Student',    N'Hoc sinh');
+(2, N'Student',    N'Hoc sinh'),
+(3, N'Teacher',    N'Giao vien');
 SET IDENTITY_INSERT dbo.Roles OFF;
 GO
 
-/* 4. Users (Admin, Student accounts) */
+/* 4. Users (Admin, Student, Teacher accounts) */
 SET IDENTITY_INSERT dbo.Users ON;
 INSERT INTO dbo.Users (UserID, Username, PasswordHash, Email, PhoneNumber, FirstName, LastName, IsActive, IsEmailVerified) VALUES
-(1, N'admin',      N'$2a$10$AK5bksWopLL3qLAPM4c.TOhAajcj2XwOSkhvgq6ZFT7s2j21GWOKi', N'admin@myfschool.vn',      N'0909999999', N'Quan', N'Tri Vien', 1, 1),
-(2, N'nguyenvana', N'$2a$10$AK5bksWopLL3qLAPM4c.TOhAajcj2XwOSkhvgq6ZFT7s2j21GWOKi', N'nguyenvana@myfschool.vn', N'0901111111', N'Van A', N'Nguyen', 1, 1),
-(3, N'tranthib',   N'$2a$10$AK5bksWopLL3qLAPM4c.TOhAajcj2XwOSkhvgq6ZFT7s2j21GWOKi', N'tranthib@myfschool.vn',   N'0902222222', N'Thi B', N'Tran',   1, 1),
-(4, N'levanc',     N'$2a$10$AK5bksWopLL3qLAPM4c.TOhAajcj2XwOSkhvgq6ZFT7s2j21GWOKi', N'levanc@myfschool.vn',     N'0903333333', N'Van C', N'Le',     1, 1),
-(5, N'phanvand',   N'$2a$10$AK5bksWopLL3qLAPM4c.TOhAajcj2XwOSkhvgq6ZFT7s2j21GWOKi', N'phanvand@myfschool.vn',   N'0904444444', N'Van D', N'Phan',   1, 1),
-(6, N'hoangthie',  N'$2a$10$AK5bksWopLL3qLAPM4c.TOhAajcj2XwOSkhvgq6ZFT7s2j21GWOKi', N'hoangthie@myfschool.vn',  N'0905555555', N'Thi E', N'Hoang',  1, 1),
-(7, N'vuminhf',    N'$2a$10$AK5bksWopLL3qLAPM4c.TOhAajcj2XwOSkhvgq6ZFT7s2j21GWOKi', N'vuminhf@myfschool.vn',    N'0906666666', N'Minh F', N'Vu',     1, 1);
+(1, N'admin',           N'$2a$10$AK5bksWopLL3qLAPM4c.TOhAajcj2XwOSkhvgq6ZFT7s2j21GWOKi', N'admin@myfschool.vn',           N'0909999999', N'Quan', N'Tri Vien', 1, 1),
+(2, N'nguyenvana',      N'$2a$10$AK5bksWopLL3qLAPM4c.TOhAajcj2XwOSkhvgq6ZFT7s2j21GWOKi', N'nguyenvana@myfschool.vn',      N'0901111111', N'Van A', N'Nguyen', 1, 1),
+(3, N'tranthib',        N'$2a$10$AK5bksWopLL3qLAPM4c.TOhAajcj2XwOSkhvgq6ZFT7s2j21GWOKi', N'tranthib@myfschool.vn',        N'0902222222', N'Thi B', N'Tran',   1, 1),
+(4, N'levanc',          N'$2a$10$AK5bksWopLL3qLAPM4c.TOhAajcj2XwOSkhvgq6ZFT7s2j21GWOKi', N'levanc@myfschool.vn',          N'0903333333', N'Van C', N'Le',     1, 1),
+(5, N'phanvand',        N'$2a$10$AK5bksWopLL3qLAPM4c.TOhAajcj2XwOSkhvgq6ZFT7s2j21GWOKi', N'phanvand@myfschool.vn',        N'0904444444', N'Van D', N'Phan',   1, 1),
+(6, N'hoangthie',       N'$2a$10$AK5bksWopLL3qLAPM4c.TOhAajcj2XwOSkhvgq6ZFT7s2j21GWOKi', N'hoangthie@myfschool.vn',       N'0905555555', N'Thi E', N'Hoang',  1, 1),
+(7, N'vuminhf',         N'$2a$10$AK5bksWopLL3qLAPM4c.TOhAajcj2XwOSkhvgq6ZFT7s2j21GWOKi', N'vuminhf@myfschool.vn',         N'0906666666', N'Minh F', N'Vu',     1, 1),
+-- 8 Teacher accounts: default password '123456' ($2a$10$qqXH1T2MnQcPuURCFBSh2e3pk7.BoQe.q919/4FpnDCqhXm7UOnni)
+(8,  N'teacher_han',    N'$2a$10$qqXH1T2MnQcPuURCFBSh2e3pk7.BoQe.q919/4FpnDCqhXm7UOnni', N'han@myfschool.vn',            N'0901000001', N'Ngoc Han', N'Nguyen', 1, 1),
+(9,  N'teacher_hien',   N'$2a$10$qqXH1T2MnQcPuURCFBSh2e3pk7.BoQe.q919/4FpnDCqhXm7UOnni', N'hien@myfschool.vn',           N'0901000002', N'Thi Hien', N'Nguyen', 1, 1),
+(10, N'teacher_duong',  N'$2a$10$qqXH1T2MnQcPuURCFBSh2e3pk7.BoQe.q919/4FpnDCqhXm7UOnni', N'duong@myfschool.vn',          N'0901000003', N'Thuy Duong', N'Phan', 1, 1),
+(11, N'teacher_hong',   N'$2a$10$qqXH1T2MnQcPuURCFBSh2e3pk7.BoQe.q919/4FpnDCqhXm7UOnni', N'hong@myfschool.vn',           N'0901000004', N'Thu Hong', N'Tran',   1, 1),
+(12, N'teacher_hanh',   N'$2a$10$qqXH1T2MnQcPuURCFBSh2e3pk7.BoQe.q919/4FpnDCqhXm7UOnni', N'hanh@myfschool.vn',           N'0901000005', N'Duc Hanh', N'Trinh',  1, 1),
+(13, N'teacher_nam',    N'$2a$10$qqXH1T2MnQcPuURCFBSh2e3pk7.BoQe.q919/4FpnDCqhXm7UOnni', N'nam@myfschool.vn',            N'0901000006', N'Hoang Nam', N'Dang',  1, 1),
+(14, N'teacher_tu',     N'$2a$10$qqXH1T2MnQcPuURCFBSh2e3pk7.BoQe.q919/4FpnDCqhXm7UOnni', N'tu@myfschool.vn',             N'0901000007', N'Minh Tu', N'Vu',     1, 1),
+(15, N'teacher_trang',  N'$2a$10$qqXH1T2MnQcPuURCFBSh2e3pk7.BoQe.q919/4FpnDCqhXm7UOnni', N'trang@myfschool.vn',          N'0901000008', N'Thu Trang', N'Le',    1, 1);
 SET IDENTITY_INSERT dbo.Users OFF;
 GO
 
 /* 4b. User_Roles (Junction) */
 INSERT INTO dbo.User_Roles (UserID, RoleID) VALUES
-(1, 1), -- Admin
-(2, 2), -- Student A
-(3, 2), -- Student B
-(4, 2), -- Student C
-(5, 2), -- Student D
-(6, 2), -- Student E
-(7, 2); -- Student F
+(1, 1),  -- Admin
+(2, 2),  -- Student A
+(3, 2),  -- Student B
+(4, 2),  -- Student C
+(5, 2),  -- Student D
+(6, 2),  -- Student E
+(7, 2),  -- Student F
+(8, 3),  -- Teacher Han
+(9, 3),  -- Teacher Hien
+(10, 3), -- Teacher Duong
+(11, 3), -- Teacher Hong
+(12, 3), -- Teacher Hanh
+(13, 3), -- Teacher Nam
+(14, 3), -- Teacher Tu
+(15, 3); -- Teacher Trang
 GO
 
-/* 5. Teachers */
+/* 5. Teachers (Linked to Users 8-15) */
 SET IDENTITY_INSERT dbo.Teachers ON;
-INSERT INTO dbo.Teachers (TeacherID, FullName, Email, PhoneNumber, Status) VALUES
-(1, N'Nguyen Ngoc Han', 'han@myfschool.vn', '0901000001', N'ACTIVE'),
-(2, N'Nguyen Thi Hien', 'hien@myfschool.vn', '0901000002', N'ACTIVE'),
-(3, N'Phan Thuy Duong', 'duong@myfschool.vn', '0901000003', N'ACTIVE'),
-(4, N'Tran Thu Hong', 'hong@myfschool.vn', '0901000004', N'ACTIVE'),
-(5, N'Trinh Duc Hanh', 'hanh@myfschool.vn', '0901000005', N'ACTIVE'),
-(6, N'Dang Hoang Nam', 'nam@myfschool.vn', '0901000006', N'ACTIVE'),
-(7, N'Vu Minh Tu', 'tu@myfschool.vn', '0901000007', N'ACTIVE'),
-(8, N'Le Thu Trang', 'trang@myfschool.vn', '0901000008', N'ACTIVE');
+INSERT INTO dbo.Teachers (TeacherID, UserID, FullName, Email, PhoneNumber, Status) VALUES
+(1, 8,  N'Nguyen Ngoc Han', 'han@myfschool.vn',   '0901000001', N'ACTIVE'),
+(2, 9,  N'Nguyen Thi Hien', 'hien@myfschool.vn',  '0901000002', N'ACTIVE'),
+(3, 10, N'Phan Thuy Duong', 'duong@myfschool.vn', '0901000003', N'ACTIVE'),
+(4, 11, N'Tran Thu Hong',   'hong@myfschool.vn',  '0901000004', N'ACTIVE'),
+(5, 12, N'Trinh Duc Hanh',  'hanh@myfschool.vn',  '0901000005', N'ACTIVE'),
+(6, 13, N'Dang Hoang Nam',  'nam@myfschool.vn',   '0901000006', N'ACTIVE'),
+(7, 14, N'Vu Minh Tu',      'tu@myfschool.vn',    '0901000007', N'ACTIVE'),
+(8, 15, N'Le Thu Trang',    'trang@myfschool.vn', '0901000008', N'ACTIVE');
 SET IDENTITY_INSERT dbo.Teachers OFF;
 GO
 
