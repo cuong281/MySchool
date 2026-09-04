@@ -96,15 +96,29 @@ void main() {
       expect(userWithEmpty.role, 'Student');
     });
 
-    test('fromMap chap nhan alternative id keys', () {
-      final withId = UserModel.fromMap({'id': 10});
-      expect(withId.id, 10);
+    test('fromMap voi teacherId va role getters', () {
+      final teacherMap = {
+        'userId': 8,
+        'username': 'teacher01',
+        'roles': ['Teacher'],
+        'teacherId': 1,
+      };
 
-      final withUserID = UserModel.fromMap({'userID': 20});
-      expect(withUserID.id, 20);
+      final teacher = UserModel.fromMap(teacherMap);
+      expect(teacher.id, 8);
+      expect(teacher.teacherId, 1);
+      expect(teacher.isTeacher, true);
+      expect(teacher.isAdmin, false);
+      expect(teacher.isStudent, false);
 
-      final withUserId = UserModel.fromMap({'userId': 30});
-      expect(withUserId.id, 30);
+      final adminMap = {
+        'userId': 1,
+        'roles': ['Admin'],
+      };
+      final admin = UserModel.fromMap(adminMap);
+      expect(admin.isAdmin, true);
+      expect(admin.isTeacher, false);
+      expect(admin.isStudent, false);
     });
   });
 }

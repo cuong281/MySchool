@@ -75,5 +75,53 @@ void main() {
 
       expect(identical(instance1, instance2), true);
     });
+
+    test('setUser luu tru accessToken va refreshToken', () async {
+      await UserSession.instance.setUser({
+        'userId': 2,
+        'username': 'nguyenvana',
+        'roles': ['Student'],
+        'accessToken': 'jwt.token.access',
+        'refreshToken': 'refresh.token.value',
+      });
+
+      expect(UserSession.instance.accessToken, 'jwt.token.access');
+      expect(UserSession.instance.refreshToken, 'refresh.token.value');
+      expect(UserSession.instance.isAuthenticated, true);
+    });
+
+    test('updateTokens cap nhat tokens moi', () async {
+      await UserSession.instance.setUser({
+        'userId': 2,
+        'username': 'nguyenvana',
+        'roles': ['Student'],
+        'accessToken': 'old.token',
+        'refreshToken': 'old.refresh',
+      });
+
+      await UserSession.instance.updateTokens('new.access.token', 'new.refresh.token');
+
+      expect(UserSession.instance.accessToken, 'new.access.token');
+      expect(UserSession.instance.refreshToken, 'new.refresh.token');
+    });
+
+    test('clear xoa sach tokens va isAuthenticated thanh false', () async {
+      await UserSession.instance.setUser({
+        'userId': 2,
+        'username': 'nguyenvana',
+        'roles': ['Student'],
+        'accessToken': 'token.to.clear',
+        'refreshToken': 'refresh.to.clear',
+      });
+
+      expect(UserSession.instance.isAuthenticated, true);
+
+      await UserSession.instance.clear();
+
+      expect(UserSession.instance.accessToken, isNull);
+      expect(UserSession.instance.refreshToken, isNull);
+      expect(UserSession.instance.currentUser, isNull);
+      expect(UserSession.instance.isAuthenticated, false);
+    });
   });
 }

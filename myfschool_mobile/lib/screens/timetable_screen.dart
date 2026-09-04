@@ -24,8 +24,8 @@ class _TimetableScreenState extends State<TimetableScreen> {
   bool isLoading = false;
   List<ScheduleDayModel> weeklySchedule = [];
   List<SchoolClassModel> _classes = [];
-  int? _selectedClassId;
-  String _selectedClassName = 'Chọn lớp';
+  int? _selectedClassId; // null = My Schedule (Teacher/Student)
+  String _selectedLabel = '';
 
   @override
   void initState() {
@@ -38,43 +38,50 @@ class _TimetableScreenState extends State<TimetableScreen> {
 
   Future<void> _loadInitialData() async {
     final user = UserSession.instance.currentUser;
-    if (user?.role == 'Admin') {
+    final isAdmin = user?.isAdmin ?? false;
+    final isTeacher = user?.isTeacher ?? false;
+
+    if (isAdmin || isTeacher) {
       final classes = await SchoolClassApi.instance.getAllClasses();
-      setState(() {
-        _classes = classes;
-        if (_classes.isNotEmpty) {
-          _selectedClassId = _classes.first.id;
-          _selectedClassName = _classes.first.className;
-        }
-      });
+      if (mounted) {
+        setState(() {
+          _classes = classes;
+          if (isAdmin && _classes.isNotEmpty) {
+            _selectedClassId = _classes.first.id;
+            _selectedLabel = 'Lớp ${_classes.first.className}';
+          } else if (isTeacher) {
+            _selectedClassId = null;
+            _selectedLabel = 'Lịch dạy của tôi';
+          }
+        });
+      }
     }
     _fetchSchedule();
   }
 
   Future<void> _fetchSchedule() async {
+    if (!mounted) return;
     setState(() => isLoading = true);
 
-    final user = UserSession.instance.currentUser;
-    final userId = user?.id?.toString() ?? '1';
-    
     List<ScheduleDayModel> data;
-    if (user?.role == 'Admin' && _selectedClassId != null) {
+    if (_selectedClassId != null) {
       data = await ScheduleApi.instance.getScheduleByClass(_selectedClassId!);
     } else {
-      data = await ScheduleApi.instance.getStudentSchedule(userId);
+      data = await ScheduleApi.instance.getMySchedule();
     }
 
-    setState(() {
-      weeklySchedule = data;
-      isLoading = false;
-    });
+    if (mounted) {
+      setState(() {
+        weeklySchedule = data;
+        isLoading = false;
+      });
+    }
   }
 
   void _previousWeek() {
     setState(() {
       currentWeekStart = currentWeekStart.subtract(const Duration(days: 7));
       selectedDate = currentWeekStart;
-      _fetchSchedule();
     });
   }
 
@@ -82,7 +89,6 @@ class _TimetableScreenState extends State<TimetableScreen> {
     setState(() {
       currentWeekStart = currentWeekStart.add(const Duration(days: 7));
       selectedDate = currentWeekStart;
-      _fetchSchedule();
     });
   }
 
@@ -112,6 +118,17 @@ class _TimetableScreenState extends State<TimetableScreen> {
     return dayData.periods;
   }
 
+  String _getHeaderTitle() {
+    final user = UserSession.instance.currentUser;
+    if (user?.isAdmin ?? false) {
+      return 'Lịch học các lớp';
+    }
+    if (user?.isTeacher ?? false) {
+      return _selectedClassId == null ? 'Lịch giảng dạy' : 'Thời khóa biểu';
+    }
+    return 'Lịch học';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -128,6 +145,10 @@ class _TimetableScreenState extends State<TimetableScreen> {
   }
 
   Widget _buildHeader() {
+    final user = UserSession.instance.currentUser;
+    final isAdmin = user?.isAdmin ?? false;
+    final isTeacher = user?.isTeacher ?? false;
+
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -153,44 +174,24 @@ class _TimetableScreenState extends State<TimetableScreen> {
                   children: [
                     Row(
                       children: [
-                        const Text(
-                          'Lịch học',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 19,
-                            fontWeight: FontWeight.w800,
+                        Flexible(
+                          child: Text(
+                            _getHeaderTitle(),
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                            ),
                           ),
                         ),
-                        if (UserSession.instance.currentUser?.role == 'Admin') ...[
+                        if ((isAdmin || isTeacher) && _classes.isNotEmpty) ...[
                           const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.18),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: DropdownButton<int?>(
-                              value: _selectedClassId,
-                              dropdownColor: const Color(0xFFF26B21),
-                              underline: const SizedBox(),
-                              icon: const Icon(Icons.arrow_drop_down_rounded, color: Colors.white, size: 20),
-                              hint: Text(_selectedClassName, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
-                              onChanged: (v) {
-                                setState(() {
-                                  _selectedClassId = v;
-                                  _selectedClassName = _classes.firstWhere((c) => c.id == v).className;
-                                  _fetchSchedule();
-                                });
-                              },
-                              items: _classes.map((c) => DropdownMenuItem<int?>(
-                                value: c.id,
-                                child: Text(c.className, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
-                              )).toList(),
-                            ),
-                          ),
+                          _buildRoleDropdown(isAdmin, isTeacher),
                         ],
                       ],
                     ),
+                    const SizedBox(height: 2),
                     Text(
                       '${DateFormat('dd/MM').format(currentWeekStart)} - ${DateFormat('dd/MM/yyyy').format(currentWeekStart.add(const Duration(days: 6)))}',
                       style: TextStyle(
@@ -218,7 +219,55 @@ class _TimetableScreenState extends State<TimetableScreen> {
     );
   }
 
-  // Moved _HeaderButtonSmall to the end of file
+  Widget _buildRoleDropdown(bool isAdmin, bool isTeacher) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.2),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: DropdownButton<int?>(
+        value: _selectedClassId,
+        dropdownColor: const Color(0xFFE85D04),
+        underline: const SizedBox(),
+        isDense: true,
+        icon: const Icon(Icons.arrow_drop_down_rounded, color: Colors.white, size: 20),
+        hint: Text(
+          _selectedLabel.isNotEmpty ? _selectedLabel : 'Chọn lớp',
+          style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
+        ),
+        onChanged: (v) {
+          setState(() {
+            _selectedClassId = v;
+            if (v == null) {
+              _selectedLabel = 'Lịch dạy của tôi';
+            } else {
+              final found = _classes.where((c) => c.id == v);
+              _selectedLabel = found.isNotEmpty ? 'Lớp ${found.first.className}' : 'Lớp';
+            }
+            _fetchSchedule();
+          });
+        },
+        items: [
+          if (isTeacher)
+            const DropdownMenuItem<int?>(
+              value: null,
+              child: Text(
+                'Lịch dạy của tôi',
+                style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
+              ),
+            ),
+          ..._classes.map((c) => DropdownMenuItem<int?>(
+                value: c.id,
+                child: Text(
+                  'Lớp ${c.className}',
+                  style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700),
+                ),
+              )),
+        ],
+      ),
+    );
+  }
 
   Widget _buildWeekBar() {
     return Container(
@@ -324,7 +373,10 @@ class _TimetableScreenState extends State<TimetableScreen> {
           children: [
             CircularProgressIndicator(color: _orange),
             SizedBox(height: 12),
-            Text('Đang tải lịch học...'),
+            Text(
+              'Đang tải lịch...',
+              style: TextStyle(color: Colors.grey, fontSize: 13),
+            ),
           ],
         ),
       );
@@ -332,24 +384,49 @@ class _TimetableScreenState extends State<TimetableScreen> {
 
     final periods = _getPeriodsForDate(selectedDate);
     if (periods.isEmpty) {
-      return const Center(
-        child: Text(
-          'Không có lịch học',
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.grey,
-            fontStyle: FontStyle.italic,
-          ),
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: _orange.withOpacity(0.08),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.event_busy_rounded, color: _orange, size: 32),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Không có tiết học trong ngày này',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: Colors.black87,
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Chọn các ngày từ Thứ 2 đến Thứ 6 để xem lịch',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey,
+              ),
+            ),
+          ],
         ),
       );
     }
 
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 24),
       itemCount: periods.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final period = periods[index];
+        final hasClass = period.className != null && period.className!.isNotEmpty;
+
         return Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -368,8 +445,8 @@ class _TimetableScreenState extends State<TimetableScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
-                width: 72,
-                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                width: 76,
+                padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 6),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFFF3EC),
                   borderRadius: BorderRadius.circular(12),
@@ -386,43 +463,66 @@ class _TimetableScreenState extends State<TimetableScreen> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      period.startTime.substring(0, 5),
-                      style: const TextStyle(fontWeight: FontWeight.w600),
+                      period.startTime.length >= 5 ? period.startTime.substring(0, 5) : period.startTime,
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      period.endTime.substring(0, 5),
-                      style: const TextStyle(fontWeight: FontWeight.w600),
+                      period.endTime.length >= 5 ? period.endTime.substring(0, 5) : period.endTime,
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
                     ),
                   ],
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      period.subjectName,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: _blue,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
                     Row(
                       children: [
-                        const Icon(Icons.person_rounded, size: 15, color: Colors.grey),
-                        const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            period.teacherName,
-                            style: const TextStyle(fontSize: 13, color: Colors.black87),
+                            period.subjectName,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: _blue,
+                            ),
                           ),
                         ),
+                        if (hasClass)
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFE0E7FF),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              'Lớp ${period.className}',
+                              style: const TextStyle(
+                                color: Color(0xFF3730A3),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
                       ],
                     ),
+                    const SizedBox(height: 8),
+                    if (period.teacherName.isNotEmpty)
+                      Row(
+                        children: [
+                          const Icon(Icons.person_outline_rounded, size: 15, color: Colors.grey),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              period.teacherName,
+                              style: const TextStyle(fontSize: 13, color: Colors.black87),
+                            ),
+                          ),
+                        ],
+                      ),
                     if (period.roomName != null && period.roomName!.isNotEmpty) ...[
                       const SizedBox(height: 6),
                       Row(

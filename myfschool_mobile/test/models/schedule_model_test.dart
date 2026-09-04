@@ -12,6 +12,8 @@ void main() {
         'subjectName': 'Toan',
         'teacherName': 'Nguyen Van B',
         'roomName': 'P301',
+        'classId': 1,
+        'className': '10A1',
       };
 
       final period = SchedulePeriodModel.fromMap(map);
@@ -22,6 +24,8 @@ void main() {
       expect(period.subjectName, 'Toan');
       expect(period.teacherName, 'Nguyen Van B');
       expect(period.roomName, 'P301');
+      expect(period.classId, 1);
+      expect(period.className, '10A1');
     });
 
     test('fromMap voi du lieu thieu', () {

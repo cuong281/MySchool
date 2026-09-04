@@ -11,6 +11,11 @@ class UserModel {
   final String studentCode;
   final int? classId;
   final String className;
+  final int? teacherId;
+
+  bool get isTeacher => roles.any((r) => r.toLowerCase().contains('teacher'));
+  bool get isAdmin => roles.any((r) => r.toLowerCase().contains('admin'));
+  bool get isStudent => !isAdmin && !isTeacher;
 
   UserModel({
     this.id,
@@ -24,6 +29,7 @@ class UserModel {
     required this.studentCode,
     this.classId,
     required this.className,
+    this.teacherId,
   });
 
   Map<String, dynamic> toMap() {
@@ -39,6 +45,7 @@ class UserModel {
       'studentCode': studentCode,
       'classId': classId,
       'className': className,
+      'teacherId': teacherId,
     };
   }
 
@@ -55,6 +62,7 @@ class UserModel {
       studentCode: map['studentCode'] ?? '',
       classId: map['classId'] ?? map['classID'],
       className: map['className'] ?? '',
+      teacherId: map['teacherId'] ?? map['teacherID'],
     );
   }
 }

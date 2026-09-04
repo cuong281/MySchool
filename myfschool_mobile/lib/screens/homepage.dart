@@ -11,9 +11,14 @@ import 'package:myfschools/screens/timetable_screen.dart';
 import 'package:myfschools/services/user_session.dart';
 import 'package:myfschools/models/news_model.dart';
 import 'package:myfschools/services/news_api.dart';
+import 'package:myfschools/screens/notification_screen.dart';
+import 'package:myfschools/screens/attendance_screen.dart';
+import 'package:myfschools/services/notification_api.dart';
 import 'admin_request_list_screen.dart';
+import 'dashboard_report_screen.dart';
 import 'news_detail_screen.dart';
 import 'news_list_screen.dart';
+import 'conversation_list_screen.dart';
 
 const _bgColor = Color(0xFFF4F6FB);
 const _textColor = Color(0xFF1E1E1E);
@@ -40,6 +45,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final studentCode = user?.studentCode ?? user?.username ?? 'adnn';
     final className = user?.className ?? 'Lớp 9A1';
     final isAdmin = user?.role == 'Admin';
+    final isTeacher = user?.isTeacher ?? false;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.dark,
@@ -65,7 +71,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             className: className,
                           ),
                           const SizedBox(height: 18),
-                          _FeatureSection(isAdmin: isAdmin),
+                          _FeatureSection(isAdmin: isAdmin, isTeacher: isTeacher),
                           const SizedBox(height: 18),
                           const _NoticeHeader(),
                           const SizedBox(height: 12),
@@ -77,8 +83,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
-            // Tab 1: Messages (Placeholder)
-            const Center(child: Text('Màn hình tin nhắn sẽ cập nhật sau')),
+            // Tab 1: Messages
+            const ConversationListScreen(),
             // Tab 2: News
             const NewsListScreen(),
           ],
@@ -209,38 +215,64 @@ class _HeaderCard extends StatelessWidget {
               ),
             ),
           ),
-          Stack(
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.16),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: Colors.white.withOpacity(0.28),
-                    width: 1,
+          InkWell(
+            onTap: () async {
+              await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const NotificationScreen()),
+              );
+            },
+            borderRadius: BorderRadius.circular(12),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.16),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.28),
+                      width: 1,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.notifications_none_rounded,
+                    color: Colors.white,
+                    size: 22,
                   ),
                 ),
-                child: const Icon(
-                  Icons.notifications_none_rounded,
-                  color: Colors.white,
-                  size: 22,
-                ),
-              ),
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFFFC531),
-                    shape: BoxShape.circle,
+                Positioned(
+                  top: -2,
+                  right: -2,
+                  child: FutureBuilder<int>(
+                    future: NotificationApi.instance.getUnreadCount(),
+                    builder: (context, snapshot) {
+                      final count = snapshot.data ?? 0;
+                      if (count <= 0) return const SizedBox.shrink();
+                      return Container(
+                        padding: const EdgeInsets.all(4),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFEF4444),
+                          shape: BoxShape.circle,
+                        ),
+                        constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                        child: Text(
+                          count > 99 ? '99+' : count.toString(),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      );
+                    },
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
@@ -297,21 +329,22 @@ class _BlueSectionBar extends StatelessWidget {
 
 class _FeatureSection extends StatelessWidget {
   final bool isAdmin;
+  final bool isTeacher;
 
-  const _FeatureSection({required this.isAdmin});
+  const _FeatureSection({required this.isAdmin, this.isTeacher = false});
 
   @override
   Widget build(BuildContext context) {
     final items = [
       _FeatureItemData(
-        label: isAdmin ? 'Xem đơn' : 'Xem đơn',
+        label: (isAdmin || isTeacher) ? 'Duyệt đơn' : 'Xem đơn',
         icon: Icons.receipt_long_rounded,
         colors: const [Color(0xFF2DB1F3), Color(0xFF1687D8)],
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) =>
-            isAdmin ? const AdminRequestListScreen() : const SendRequestScreen(),
+            (isAdmin || isTeacher) ? const AdminRequestListScreen() : const SendRequestScreen(),
           ),
         ),
       ),
@@ -360,6 +393,25 @@ class _FeatureSection extends StatelessWidget {
           MaterialPageRoute(builder: (_) => const GradeScreen()),
         ),
       ),
+      _FeatureItemData(
+        label: 'Điểm danh',
+        icon: Icons.fact_check_outlined,
+        colors: const [Color(0xFF00B4D8), Color(0xFF0077B6)],
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const AttendanceScreen()),
+        ),
+      ),
+      if (isAdmin || isTeacher)
+        _FeatureItemData(
+          label: 'Báo cáo',
+          icon: Icons.analytics_outlined,
+          colors: const [Color(0xFF6366F1), Color(0xFF4F46E5)],
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const DashboardReportScreen()),
+          ),
+        ),
     ];
 
     return Container(
