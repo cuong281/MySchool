@@ -3,6 +3,29 @@ import assert from 'node:assert/strict';
 // ── Configuration ──────────────────────────────────────────────────────────
 export const apiBase = process.env.API_BASE_URL || 'http://localhost:8080/api';
 
+// ── Auth Token State ───────────────────────────────────────────────────────
+let currentAuthToken = null;
+
+export function setAuthToken(token) {
+  currentAuthToken = token;
+}
+
+export function getAuthToken() {
+  return currentAuthToken;
+}
+
+export function clearAuthToken() {
+  currentAuthToken = null;
+}
+
+export async function loginAs(phoneNumber, password) {
+  const res = await apiPost('/auth/login', { phoneNumber, password });
+  if (res.ok && res.body?.accessToken) {
+    setAuthToken(res.body.accessToken);
+  }
+  return res;
+}
+
 // ── Test Result Tracking ───────────────────────────────────────────────────
 const results = [];
 
@@ -70,42 +93,65 @@ export function exitWithSummary() {
 }
 
 // ── HTTP Helpers ───────────────────────────────────────────────────────────
-export async function apiGet(path) {
-  const response = await fetch(`${apiBase}${path}`);
+function buildHeaders(customHeaders = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
+    ...customHeaders,
+  };
+  if (currentAuthToken && customHeaders['Authorization'] === undefined) {
+    headers['Authorization'] = `Bearer ${currentAuthToken}`;
+  }
+  if (headers['Authorization'] === '') {
+    delete headers['Authorization'];
+  }
+  return headers;
+}
+
+export async function apiGet(path, options = {}) {
+  const headers = buildHeaders(options.headers);
+  const response = await fetch(`${apiBase}${path}`, {
+    method: 'GET',
+    headers,
+  });
   return parseResponse(response);
 }
 
-export async function apiPost(path, body) {
+export async function apiPost(path, body, options = {}) {
+  const headers = buildHeaders(options.headers);
   const response = await fetch(`${apiBase}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
   return parseResponse(response);
 }
 
-export async function apiPut(path, body) {
+export async function apiPut(path, body, options = {}) {
+  const headers = buildHeaders(options.headers);
   const response = await fetch(`${apiBase}${path}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
   return parseResponse(response);
 }
 
-export async function apiPatch(path, body) {
+export async function apiPatch(path, body, options = {}) {
+  const headers = buildHeaders(options.headers);
   const response = await fetch(`${apiBase}${path}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
   return parseResponse(response);
 }
 
-export async function apiDelete(path) {
+export async function apiDelete(path, options = {}) {
+  const headers = buildHeaders(options.headers);
   const response = await fetch(`${apiBase}${path}`, {
     method: 'DELETE',
-    headers: { 'Accept': 'application/json' },
+    headers,
   });
   return parseResponse(response);
 }
@@ -133,7 +179,7 @@ export function expectRejected(result, context) {
 }
 
 export function expectStatus(result, expectedStatus, context) {
-  assert.equal(result.status, expectedStatus, `${context} expected HTTP ${expectedStatus} but got ${result.status}`);
+  assert.equal(result.status, expectedStatus, `${context} expected HTTP ${expectedStatus} but got ${result.status}: ${result.text}`);
 }
 
 // ── Date Helpers ───────────────────────────────────────────────────────────
