@@ -7,11 +7,15 @@ class UserModel {
   final String phoneNumber;
   final List<String> roles;
   String get role => roles.isNotEmpty ? roles.first : 'Student';
+  String get fullName => '$firstName $lastName'.trim().isNotEmpty ? '$firstName $lastName'.trim() : username;
   final int? studentId;
   final String studentCode;
   final int? classId;
   final String className;
   final int? teacherId;
+  final String? dateOfBirth;
+  final String? gender;
+  final String? address;
 
   bool get isTeacher => roles.any((r) => r.toLowerCase().contains('teacher'));
   bool get isAdmin => roles.any((r) => r.toLowerCase().contains('admin'));
@@ -30,6 +34,9 @@ class UserModel {
     this.classId,
     required this.className,
     this.teacherId,
+    this.dateOfBirth,
+    this.gender,
+    this.address,
   });
 
   Map<String, dynamic> toMap() {
@@ -46,6 +53,9 @@ class UserModel {
       'classId': classId,
       'className': className,
       'teacherId': teacherId,
+      'dateOfBirth': dateOfBirth,
+      'gender': gender,
+      'address': address,
     };
   }
 
@@ -63,6 +73,9 @@ class UserModel {
       classId: map['classId'] ?? map['classID'],
       className: map['className'] ?? '',
       teacherId: map['teacherId'] ?? map['teacherID'],
+      dateOfBirth: map['dateOfBirth']?.toString(),
+      gender: map['gender']?.toString(),
+      address: map['address']?.toString(),
     );
   }
 }

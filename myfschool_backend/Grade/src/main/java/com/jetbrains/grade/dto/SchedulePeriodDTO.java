@@ -21,6 +21,7 @@ public class SchedulePeriodDTO {
     @JsonFormat(pattern = "HH:mm")
     private LocalTime endTime;
 
+    private Integer subjectId;
     private String subjectName;
     private String teacherName;
     private String roomName;

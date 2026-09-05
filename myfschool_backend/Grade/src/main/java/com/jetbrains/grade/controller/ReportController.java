@@ -19,14 +19,18 @@ public class ReportController {
 
     @GetMapping("/admin/dashboard")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<AdminDashboardDTO> getAdminDashboard() {
-        return ResponseEntity.ok(reportService.getAdminDashboard());
+    public ResponseEntity<AdminDashboardDTO> getAdminDashboard(
+            @RequestParam(required = false) String academicYear,
+            @RequestParam(required = false) Integer semester) {
+        return ResponseEntity.ok(reportService.getAdminDashboard(academicYear, semester));
     }
 
     @GetMapping("/teacher/homeroom")
     @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
-    public ResponseEntity<TeacherHomeroomDashboardDTO> getTeacherHomeroomDashboard() {
-        return ResponseEntity.ok(reportService.getTeacherHomeroomDashboard());
+    public ResponseEntity<TeacherHomeroomDashboardDTO> getTeacherHomeroomDashboard(
+            @RequestParam(required = false) String academicYear,
+            @RequestParam(required = false) Integer semester) {
+        return ResponseEntity.ok(reportService.getTeacherHomeroomDashboard(academicYear, semester));
     }
 
     @GetMapping("/teacher/subject-stats")

@@ -171,8 +171,8 @@ class _EventScreenState extends State<EventScreen>
                 Icon(Icons.event_note_rounded, size: 14, color: _blue),
                 const SizedBox(width: 5),
                 Text(
-                  '${_allEvents.length} sự kiện',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: _blue),
+                  '${_filteredEvents.length} sự kiện',
+                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: _blue),
                 ),
               ],
             ),

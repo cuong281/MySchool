@@ -142,6 +142,7 @@ public class ScheduleService {
                                         .slotNumber(schedule.getTimeSlot().getSlotNumber())
                                         .startTime(schedule.getTimeSlot().getStartTime())
                                         .endTime(schedule.getTimeSlot().getEndTime())
+                                        .subjectId(schedule.getSubject() != null ? schedule.getSubject().getId() : null)
                                         .subjectName(schedule.getSubject().getSubjectName())
                                         .teacherName(schedule.getTeacher() != null ? schedule.getTeacher().getFullName() : "")
                                         .roomName(schedule.getRoomName())

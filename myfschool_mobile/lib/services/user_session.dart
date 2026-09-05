@@ -42,7 +42,11 @@ class UserSession {
     if (currentUser == null) return '';
     final last = currentUser!.lastName;
     final first = currentUser!.firstName;
-    return '$last $first'.trim();
+    final name = '$last $first'.trim();
+    if (name.isNotEmpty) return name;
+    if (currentUser!.isAdmin) return 'Quản trị viên';
+    if (currentUser!.isTeacher) return 'Giáo viên';
+    return currentUser!.username;
   }
 
   /// Xóa session và tokens khi đăng xuất.

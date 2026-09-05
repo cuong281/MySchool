@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -39,46 +40,96 @@ public class ReportService {
     private final TeacherAssignmentEnforcer teacherAssignmentEnforcer;
 
     public AdminDashboardDTO getAdminDashboard() {
+        return getAdminDashboard("2025-2026", 1);
+    }
+
+    public AdminDashboardDTO getAdminDashboard(String academicYear, Integer semester) {
         if (!SecurityUtils.isAdmin()) {
             throw new AccessDeniedException("Chỉ quản trị viên mới có quyền xem báo cáo toàn trường");
         }
 
+        String targetYear = (academicYear != null && !academicYear.isBlank()) ? academicYear : "2025-2026";
+        int targetSemester = (semester != null && semester > 0) ? semester : 1;
+
         long totalStudents = studentRepository.count();
         long totalTeachers = teacherRepository.count();
-        long totalClasses = schoolClassRepository.count();
+        long totalClasses = studentRepository.findAll().stream()
+                .map(s -> s.getSchoolClass() != null ? s.getSchoolClass().getId() : null)
+                .filter(Objects::nonNull)
+                .distinct()
+                .count();
 
-        List<Grade> grades = gradeRepository.findAll();
-        long totalGrades = grades.size();
+        List<Grade> allGrades = gradeRepository.findAll();
+        List<Grade> filteredGrades = allGrades.stream()
+                .filter(g -> g.getSchoolYear() == null || g.getSchoolYear().getName() == null || targetYear.equalsIgnoreCase(g.getSchoolYear().getName()))
+                .filter(g -> g.getSemester() == null || targetSemester == g.getSemester())
+                .collect(Collectors.toList());
 
-        double avgGpa = grades.stream()
-                .filter(g -> g.getAverageScore() != null)
-                .mapToDouble(Grade::getAverageScore)
-                .average()
-                .orElse(0.0);
+        long totalGrades = filteredGrades.size();
+
+        // Calculate student-level GPA and distribution across the 50 students
+        Map<Integer, List<Grade>> gradesByStudent = filteredGrades.stream()
+                .filter(g -> g.getStudent() != null && g.getStudent().getId() != null)
+                .collect(Collectors.groupingBy(g -> g.getStudent().getId()));
+
+        Map<String, Long> gradeDist = new LinkedHashMap<>();
+        gradeDist.put("Xuất sắc", 0L);
+        gradeDist.put("Giỏi", 0L);
+        gradeDist.put("Khá", 0L);
+        gradeDist.put("Trung bình", 0L);
+        gradeDist.put("Yếu", 0L);
+
+        List<Double> studentGpas = new ArrayList<>();
+        for (Map.Entry<Integer, List<Grade>> entry : gradesByStudent.entrySet()) {
+            double studentAvg = entry.getValue().stream()
+                    .filter(g -> g.getAverageScore() != null)
+                    .mapToDouble(Grade::getAverageScore)
+                    .average()
+                    .orElse(0.0);
+            studentGpas.add(studentAvg);
+
+            if (studentAvg >= 9.0) {
+                gradeDist.put("Xuất sắc", gradeDist.get("Xuất sắc") + 1);
+            } else if (studentAvg >= 8.0) {
+                gradeDist.put("Giỏi", gradeDist.get("Giỏi") + 1);
+            } else if (studentAvg >= 6.5) {
+                gradeDist.put("Khá", gradeDist.get("Khá") + 1);
+            } else if (studentAvg >= 5.0) {
+                gradeDist.put("Trung bình", gradeDist.get("Trung bình") + 1);
+            } else {
+                gradeDist.put("Yếu", gradeDist.get("Yếu") + 1);
+            }
+        }
+
+        double avgGpa = studentGpas.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
         avgGpa = round(avgGpa, 2);
 
-        Map<String, Long> gradeDist = grades.stream()
-                .filter(g -> g.getLetterGrade() != null && !g.getLetterGrade().isBlank())
-                .collect(Collectors.groupingBy(Grade::getLetterGrade, Collectors.counting()));
+        // Attendance stats for TODAY (prevent divide by zero if attendance not taken yet)
+        LocalDate today = LocalDate.now();
+        List<Attendance> allAttendances = attendanceRepository.findAll();
+        List<Attendance> todayAttendances = allAttendances.stream()
+                .filter(a -> a.getAttendanceDate() != null && today.equals(a.getAttendanceDate()))
+                .collect(Collectors.toList());
 
-        List<Attendance> attendances = attendanceRepository.findAll();
-        long totalAttendance = attendances.size();
-        long presentCount = attendances.stream().filter(a -> "PRESENT".equalsIgnoreCase(a.getStatus())).count();
-        long excusedCount = attendances.stream().filter(a -> "EXCUSED_ABSENCE".equalsIgnoreCase(a.getStatus())).count();
-        long unexcusedCount = attendances.stream().filter(a -> "UNEXCUSED_ABSENCE".equalsIgnoreCase(a.getStatus())).count();
-        long lateCount = attendances.stream().filter(a -> "LATE".equalsIgnoreCase(a.getStatus())).count();
+        long totalAttendance = todayAttendances.size();
+        long presentCount = todayAttendances.stream().filter(a -> "PRESENT".equalsIgnoreCase(a.getStatus())).count();
+        long excusedCount = todayAttendances.stream().filter(a -> "EXCUSED_ABSENCE".equalsIgnoreCase(a.getStatus())).count();
+        long unexcusedCount = todayAttendances.stream().filter(a -> "UNEXCUSED_ABSENCE".equalsIgnoreCase(a.getStatus())).count();
+        long lateCount = todayAttendances.stream().filter(a -> "LATE".equalsIgnoreCase(a.getStatus())).count();
 
         double attendanceRate = totalAttendance > 0
                 ? round((presentCount * 100.0) / totalAttendance, 2)
-                : 100.0;
+                : 0.0;
 
         List<LeaveRequest> leaveRequests = leaveRequestRepository.findAll();
         long totalLeaves = leaveRequests.size();
-        long pendingLeaves = leaveRequests.stream().filter(l -> "Chờ duyệt".equalsIgnoreCase(l.getStatus())).count();
+        long pendingLeaves = leaveRequests.stream().filter(l -> "Chờ duyệt".equalsIgnoreCase(l.getStatus()) || "PENDING".equalsIgnoreCase(l.getStatus())).count();
         long approvedLeaves = leaveRequests.stream().filter(l -> "APPROVED".equalsIgnoreCase(l.getStatus()) || "Đã duyệt".equalsIgnoreCase(l.getStatus())).count();
         long rejectedLeaves = leaveRequests.stream().filter(l -> "REJECTED".equalsIgnoreCase(l.getStatus()) || "Từ chối".equalsIgnoreCase(l.getStatus())).count();
 
         return AdminDashboardDTO.builder()
+                .academicYear(targetYear)
+                .semester(targetSemester)
                 .totalStudents(totalStudents)
                 .totalTeachers(totalTeachers)
                 .totalClasses(totalClasses)
@@ -99,6 +150,10 @@ public class ReportService {
     }
 
     public TeacherHomeroomDashboardDTO getTeacherHomeroomDashboard() {
+        return getTeacherHomeroomDashboard("2025-2026", 1);
+    }
+
+    public TeacherHomeroomDashboardDTO getTeacherHomeroomDashboard(String academicYear, Integer semester) {
         if (SecurityUtils.isStudent()) {
             throw new AccessDeniedException("Học sinh không có quyền truy cập báo cáo giáo viên");
         }
@@ -113,6 +168,9 @@ public class ReportService {
             throw new AccessDeniedException("Giáo viên hiện tại không phải giáo viên chủ nhiệm của lớp học nào");
         }
 
+        String targetYear = (academicYear != null && !academicYear.isBlank()) ? academicYear : "2025-2026";
+        int targetSemester = (semester != null && semester > 0) ? semester : 1;
+
         SchoolClass homeroomClass = homeroomClasses.get(0);
         Integer classId = homeroomClass.getId();
 
@@ -120,9 +178,13 @@ public class ReportService {
 
         List<LeaveRequest> classLeaves = leaveRequestRepository.findByClassIdsOrderByCreatedAtDesc(List.of(classId));
         long totalLeaves = classLeaves.size();
-        long pendingLeaves = classLeaves.stream().filter(l -> "Chờ duyệt".equalsIgnoreCase(l.getStatus())).count();
+        long pendingLeaves = classLeaves.stream().filter(l -> "Chờ duyệt".equalsIgnoreCase(l.getStatus()) || "PENDING".equalsIgnoreCase(l.getStatus())).count();
 
-        List<Attendance> classAttendances = attendanceRepository.findBySchoolClassId(classId);
+        LocalDate today = LocalDate.now();
+        List<Attendance> classAttendances = attendanceRepository.findBySchoolClassId(classId).stream()
+                .filter(a -> a.getAttendanceDate() != null && today.equals(a.getAttendanceDate()))
+                .collect(Collectors.toList());
+
         long totalAttendance = classAttendances.size();
         long presentCount = classAttendances.stream().filter(a -> "PRESENT".equalsIgnoreCase(a.getStatus())).count();
         long excusedCount = classAttendances.stream().filter(a -> "EXCUSED_ABSENCE".equalsIgnoreCase(a.getStatus())).count();
@@ -131,21 +193,52 @@ public class ReportService {
 
         double attendanceRate = totalAttendance > 0
                 ? round((presentCount * 100.0) / totalAttendance, 2)
-                : 100.0;
+                : 0.0;
 
-        List<Grade> classGrades = gradeRepository.findByStudentSchoolClassId(classId);
-        double avgGpa = classGrades.stream()
-                .filter(g -> g.getAverageScore() != null)
-                .mapToDouble(Grade::getAverageScore)
-                .average()
-                .orElse(0.0);
+        List<Grade> classGrades = gradeRepository.findByStudentSchoolClassId(classId).stream()
+                .filter(g -> g.getSchoolYear() == null || g.getSchoolYear().getName() == null || targetYear.equalsIgnoreCase(g.getSchoolYear().getName()))
+                .filter(g -> g.getSemester() == null || targetSemester == g.getSemester())
+                .collect(Collectors.toList());
+
+        Map<Integer, List<Grade>> gradesByStudent = classGrades.stream()
+                .filter(g -> g.getStudent() != null && g.getStudent().getId() != null)
+                .collect(Collectors.groupingBy(g -> g.getStudent().getId()));
+
+        Map<String, Long> gradeDist = new LinkedHashMap<>();
+        gradeDist.put("Xuất sắc", 0L);
+        gradeDist.put("Giỏi", 0L);
+        gradeDist.put("Khá", 0L);
+        gradeDist.put("Trung bình", 0L);
+        gradeDist.put("Yếu", 0L);
+
+        List<Double> studentGpas = new ArrayList<>();
+        for (Map.Entry<Integer, List<Grade>> entry : gradesByStudent.entrySet()) {
+            double studentAvg = entry.getValue().stream()
+                    .filter(g -> g.getAverageScore() != null)
+                    .mapToDouble(Grade::getAverageScore)
+                    .average()
+                    .orElse(0.0);
+            studentGpas.add(studentAvg);
+
+            if (studentAvg >= 9.0) {
+                gradeDist.put("Xuất sắc", gradeDist.get("Xuất sắc") + 1);
+            } else if (studentAvg >= 8.0) {
+                gradeDist.put("Giỏi", gradeDist.get("Giỏi") + 1);
+            } else if (studentAvg >= 6.5) {
+                gradeDist.put("Khá", gradeDist.get("Khá") + 1);
+            } else if (studentAvg >= 5.0) {
+                gradeDist.put("Trung bình", gradeDist.get("Trung bình") + 1);
+            } else {
+                gradeDist.put("Yếu", gradeDist.get("Yếu") + 1);
+            }
+        }
+
+        double avgGpa = studentGpas.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
         avgGpa = round(avgGpa, 2);
 
-        Map<String, Long> gradeDist = classGrades.stream()
-                .filter(g -> g.getLetterGrade() != null && !g.getLetterGrade().isBlank())
-                .collect(Collectors.groupingBy(Grade::getLetterGrade, Collectors.counting()));
-
         return TeacherHomeroomDashboardDTO.builder()
+                .academicYear(targetYear)
+                .semester(targetSemester)
                 .classId(classId)
                 .className(homeroomClass.getClassName())
                 .homeroomTeacherName(homeroomClass.getHomeroomTeacher() != null ? homeroomClass.getHomeroomTeacher().getFullName() : "")

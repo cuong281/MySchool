@@ -12,6 +12,8 @@ import java.util.Map;
 @NoArgsConstructor
 @AllArgsConstructor
 public class TeacherHomeroomDashboardDTO {
+    private String academicYear;
+    private Integer semester;
     private Integer classId;
     private String className;
     private String homeroomTeacherName;

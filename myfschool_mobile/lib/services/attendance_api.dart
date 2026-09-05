@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:myfschools/models/attendance.dart';
 import 'package:myfschools/models/attendance_summary.dart';
+import 'package:myfschools/models/attendance_sheet_model.dart';
+import 'package:myfschools/models/attendance_history_model.dart';
 import 'package:myfschools/services/api_client.dart';
 
 class AttendanceApi {
@@ -41,7 +43,97 @@ class AttendanceApi {
     }
   }
 
-  /// [Teacher/Admin] Ghi nhận điểm danh
+  /// Lấy bảng danh sách điểm danh của lớp theo tiết/ngày (Side-effect free)
+  Future<AttendanceSheetModel?> getAttendanceSheet(
+    int classId, {
+    int? subjectId,
+    required int slotNumber,
+    String? date,
+  }) async {
+    try {
+      final params = <String, String>{
+        'slotNumber': slotNumber.toString(),
+      };
+      if (subjectId != null) params['subjectId'] = subjectId.toString();
+      if (date != null && date.isNotEmpty) params['date'] = date;
+
+      final uri = Uri.parse('$_endpoint/class/$classId/sheet').replace(queryParameters: params);
+      final response = await ApiClient.instance.get(uri);
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
+        return AttendanceSheetModel.fromJson(data);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Ghi nhận điểm danh hàng loạt (Batch)
+  Future<Map<String, dynamic>> recordBatchAttendance(AttendanceBatchRequest req) async {
+    try {
+      final uri = Uri.parse('$_endpoint/batch');
+      final response = await ApiClient.instance.post(
+        uri,
+        body: jsonEncode(req.toJson()),
+      );
+
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return {
+          'success': true,
+          'message': decoded['message'] ?? 'Lưu điểm danh thành công',
+        };
+      } else if (response.statusCode == 409) {
+        return {
+          'success': false,
+          'conflict': LeaveConflictError.fromJson(decoded is Map<String, dynamic> ? decoded : {}),
+          'message': decoded['message'] ?? 'Học sinh có đơn nghỉ phép được duyệt.',
+        };
+      } else {
+        return {
+          'success': false,
+          'status': response.statusCode,
+          'message': decoded['message'] ?? 'Không thể lưu điểm danh (${response.statusCode})',
+        };
+      }
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Đã xảy ra lỗi kết nối: $e',
+      };
+    }
+  }
+
+  /// Lấy lịch sử và thống kê chuyên cần của một lớp
+  Future<AttendanceClassHistoryModel?> getClassAttendanceHistory(
+    int classId, {
+    String? startDate,
+    String? endDate,
+  }) async {
+    try {
+      final params = <String, String>{};
+      if (startDate != null && startDate.isNotEmpty) params['startDate'] = startDate;
+      if (endDate != null && endDate.isNotEmpty) params['endDate'] = endDate;
+
+      final uri = Uri.parse('$_endpoint/class/$classId/history').replace(
+        queryParameters: params.isNotEmpty ? params : null,
+      );
+      final response = await ApiClient.instance.get(uri);
+
+      if (response.statusCode == 200) {
+        final Map<String, dynamic> data = jsonDecode(utf8.decode(response.bodyBytes));
+        return AttendanceClassHistoryModel.fromJson(data);
+      }
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// [Teacher/Admin] Ghi nhận điểm danh đơn lẻ
   Future<bool> recordAttendance({
     required int studentId,
     required int classId,

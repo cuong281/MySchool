@@ -90,6 +90,20 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(error);
     }
 
+    @ExceptionHandler(LeaveConflictException.class)
+    public ResponseEntity<Map<String, Object>> handleLeaveConflictException(LeaveConflictException ex, HttpServletRequest request) {
+        log.warn("Leave conflict on {}: {}", request.getRequestURI(), ex.getMessage());
+        Map<String, Object> body = new HashMap<>();
+        body.put("timestamp", LocalDateTime.now());
+        body.put("status", HttpStatus.CONFLICT.value());
+        body.put("error", "CONFLICT_APPROVED_LEAVE");
+        body.put("message", ex.getMessage());
+        body.put("path", request.getRequestURI());
+        body.put("studentId", ex.getStudentId());
+        body.put("leaveRequestId", ex.getLeaveRequestId());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(body);
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorResponse> handleGlobalException(Exception ex, HttpServletRequest request) {
         log.error("Unhandled exception on {}: {}", request.getRequestURI(), ex.getMessage(), ex);

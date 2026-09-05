@@ -5,6 +5,7 @@ import 'package:myfschools/models/school_class_model.dart';
 import 'package:myfschools/services/schedule_api.dart';
 import 'package:myfschools/services/school_class_api.dart';
 import 'package:myfschools/services/user_session.dart';
+import 'package:myfschools/screens/attendance_sheet_screen.dart';
 
 class TimetableScreen extends StatefulWidget {
   const TimetableScreen({super.key});
@@ -426,6 +427,9 @@ class _TimetableScreenState extends State<TimetableScreen> {
       itemBuilder: (context, index) {
         final period = periods[index];
         final hasClass = period.className != null && period.className!.isNotEmpty;
+        final user = UserSession.instance.currentUser;
+        final isStaff = (user?.isTeacher == true) || (user?.isAdmin == true);
+        final targetClassId = period.classId ?? _selectedClassId;
 
         return Container(
           padding: const EdgeInsets.all(14),
@@ -536,6 +540,10 @@ class _TimetableScreenState extends State<TimetableScreen> {
                         ],
                       ),
                     ],
+                    if (isStaff && targetClassId != null) ...[
+                      const SizedBox(height: 10),
+                      _buildAttendanceAction(period, targetClassId),
+                    ],
                   ],
                 ),
               ),
@@ -543,6 +551,149 @@ class _TimetableScreenState extends State<TimetableScreen> {
           ),
         );
       },
+    );
+  }
+
+  Widget _buildAttendanceAction(SchedulePeriodModel period, int classId) {
+    final user = UserSession.instance.currentUser;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final targetDate = DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
+    final isToday = targetDate.isAtSameMomentAs(today);
+    final isPastDay = targetDate.isBefore(today);
+    final isFutureDay = targetDate.isAfter(today);
+
+    bool notStartedYet = false;
+    if (isToday) {
+      try {
+        final parts = period.startTime.split(':');
+        final slotStart = DateTime(now.year, now.month, now.day, int.parse(parts[0]), int.parse(parts[1]));
+        notStartedYet = now.isBefore(slotStart);
+      } catch (_) {}
+    }
+
+    String? className = period.className;
+    if (className == null && _classes.isNotEmpty) {
+      try {
+        className = _classes.firstWhere((c) => c.id == classId).className;
+      } catch (_) {}
+    }
+
+    void openAttendanceSheet() {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => AttendanceSheetScreen(
+            classId: classId,
+            className: className,
+            subjectId: period.subjectId,
+            subjectName: period.subjectName,
+            slotNumber: period.slotNumber,
+            attendanceDate: DateFormat('yyyy-MM-dd').format(selectedDate),
+          ),
+        ),
+      );
+    }
+
+    if (isFutureDay) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: Colors.grey.shade100,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: Colors.grey.shade300),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.schedule, size: 13, color: Colors.grey),
+            SizedBox(width: 4),
+            Text('Chưa tới ngày', style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w600)),
+          ],
+        ),
+      );
+    }
+
+    if (isPastDay) {
+      return InkWell(
+        onTap: openAttendanceSheet,
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: Colors.blue.shade200),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.visibility_outlined, size: 14, color: Colors.blue.shade800),
+              const SizedBox(width: 4),
+              Text(
+                'Xem điểm danh',
+                style: TextStyle(fontSize: 11, color: Colors.blue.shade800, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // Today
+    if (notStartedYet && !(user?.isAdmin ?? false)) {
+      return InkWell(
+        onTap: openAttendanceSheet,
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: Colors.amber.shade50,
+            borderRadius: BorderRadius.circular(6),
+            border: Border.all(color: Colors.amber.shade300),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.access_time, size: 14, color: Colors.amber.shade900),
+              const SizedBox(width: 4),
+              Text(
+                'Chưa tới giờ (${period.startTime.length >= 5 ? period.startTime.substring(0, 5) : period.startTime})',
+                style: TextStyle(fontSize: 11, color: Colors.amber.shade900, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return InkWell(
+      onTap: openAttendanceSheet,
+      borderRadius: BorderRadius.circular(6),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: _orange,
+          borderRadius: BorderRadius.circular(6),
+          boxShadow: [
+            BoxShadow(
+              color: _orange.withOpacity(0.3),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.how_to_reg, size: 14, color: Colors.white),
+            SizedBox(width: 4),
+            Text(
+              'Điểm danh ngay',
+              style: TextStyle(fontSize: 11, color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

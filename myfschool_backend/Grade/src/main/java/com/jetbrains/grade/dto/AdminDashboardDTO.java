@@ -12,6 +12,8 @@ import java.util.Map;
 @NoArgsConstructor
 @AllArgsConstructor
 public class AdminDashboardDTO {
+    private String academicYear;
+    private Integer semester;
     private long totalStudents;
     private long totalTeachers;
     private long totalClasses;

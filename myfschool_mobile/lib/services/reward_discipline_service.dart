@@ -1,37 +1,90 @@
 import 'dart:convert';
-import 'package:http/http.dart' as http;
+import 'package:flutter/foundation.dart';
+import 'package:myfschools/services/api_client.dart';
 import '../models/reward_discipline_model.dart';
 
 class RewardDisciplineService {
-  static const String _baseUrl = 'http://10.0.2.2:8080/api/rewards-discipline';
+  static const String _endpoint = '${ApiClient.baseUrl}/rewards-discipline';
+
+  /// Get rewards and disciplines with optional filters (role enforced by backend)
+  Future<List<RewardDisciplineModel>> getRewards({
+    int? classId,
+    int? semester,
+    String? type,
+    String? schoolYear,
+  }) async {
+    try {
+      final queryParams = <String, String>{};
+      if (classId != null) queryParams['classId'] = classId.toString();
+      if (semester != null) queryParams['semester'] = semester.toString();
+      if (type != null && type.isNotEmpty && type != 'Tất cả') queryParams['type'] = type;
+      if (schoolYear != null && schoolYear.isNotEmpty && schoolYear != 'Tất cả') queryParams['schoolYear'] = schoolYear;
+
+      final uri = Uri.parse(_endpoint).replace(
+        queryParameters: queryParams.isNotEmpty ? queryParams : null,
+      );
+      final response = await ApiClient.instance.get(uri);
+
+      if (response.statusCode == 200) {
+        final List<dynamic> body = jsonDecode(utf8.decode(response.bodyBytes));
+        return body.map((item) => RewardDisciplineModel.fromJson(item)).toList();
+      } else {
+        debugPrint('RewardDisciplineService error: ${response.statusCode} - ${response.body}');
+        return [];
+      }
+    } catch (e) {
+      debugPrint('RewardDisciplineService exception: $e');
+      return [];
+    }
+  }
+
+  /// Get rewards and disciplines for current authenticated user (student)
+  Future<List<RewardDisciplineModel>> getMyRewards({
+    int? semester,
+    String? type,
+    String? schoolYear,
+  }) async {
+    try {
+      final queryParams = <String, String>{};
+      if (semester != null) queryParams['semester'] = semester.toString();
+      if (type != null && type.isNotEmpty && type != 'Tất cả') queryParams['type'] = type;
+      if (schoolYear != null && schoolYear.isNotEmpty && schoolYear != 'Tất cả') queryParams['schoolYear'] = schoolYear;
+
+      final uri = Uri.parse('$_endpoint/me').replace(
+        queryParameters: queryParams.isNotEmpty ? queryParams : null,
+      );
+      final response = await ApiClient.instance.get(uri);
+
+      if (response.statusCode == 200) {
+        final List<dynamic> body = jsonDecode(utf8.decode(response.bodyBytes));
+        return body.map((item) => RewardDisciplineModel.fromJson(item)).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('getMyRewards exception: $e');
+      return [];
+    }
+  }
 
   Future<List<RewardDisciplineModel>> getByUserId(int userId) async {
-    final response = await http.get(Uri.parse('$_baseUrl/user/$userId'));
-    if (response.statusCode == 200) {
-      List<dynamic> body = jsonDecode(utf8.decode(response.bodyBytes));
-      return body.map((dynamic item) => RewardDisciplineModel.fromJson(item)).toList();
-    } else {
-      throw "Lỗi khi tải danh sách khen thưởng/kỷ luật";
+    try {
+      final uri = Uri.parse('$_endpoint/user/$userId');
+      final response = await ApiClient.instance.get(uri);
+      if (response.statusCode == 200) {
+        final List<dynamic> body = jsonDecode(utf8.decode(response.bodyBytes));
+        return body.map((item) => RewardDisciplineModel.fromJson(item)).toList();
+      }
+      return [];
+    } catch (e) {
+      return [];
     }
   }
 
   Future<List<RewardDisciplineModel>> getAllRewards() async {
-    final response = await http.get(Uri.parse(_baseUrl));
-    if (response.statusCode == 200) {
-      List<dynamic> body = jsonDecode(utf8.decode(response.bodyBytes));
-      return body.map((dynamic item) => RewardDisciplineModel.fromJson(item)).toList();
-    } else {
-      throw "Lỗi khi tải tất cả khen thưởng/kỷ luật";
-    }
+    return getRewards();
   }
 
   Future<List<RewardDisciplineModel>> getByClassId(int classId) async {
-    final response = await http.get(Uri.parse('$_baseUrl/class/$classId'));
-    if (response.statusCode == 200) {
-      List<dynamic> body = jsonDecode(utf8.decode(response.bodyBytes));
-      return body.map((dynamic item) => RewardDisciplineModel.fromJson(item)).toList();
-    } else {
-      throw "Lỗi khi tải khen thưởng/kỷ luật theo lớp";
-    }
+    return getRewards(classId: classId);
   }
 }

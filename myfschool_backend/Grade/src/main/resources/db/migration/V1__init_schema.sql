@@ -1,0 +1,330 @@
+-- ==========================================================
+-- Flyway Migration V1: Initial Schema (MySQL)
+-- ==========================================================
+
+SET FOREIGN_KEY_CHECKS = 0;
+
+CREATE TABLE IF NOT EXISTS Roles (
+    RoleID INT NOT NULL AUTO_INCREMENT,
+    RoleName VARCHAR(50) NOT NULL UNIQUE,
+    IsActive BIT(1) DEFAULT 1,
+    PRIMARY KEY (RoleID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS Users (
+    UserID INT NOT NULL AUTO_INCREMENT,
+    Username VARCHAR(50) NOT NULL UNIQUE,
+    Email VARCHAR(255) NOT NULL UNIQUE,
+    PasswordHash VARCHAR(255) NOT NULL,
+    FirstName VARCHAR(100) DEFAULT NULL,
+    LastName VARCHAR(100) DEFAULT NULL,
+    PhoneNumber VARCHAR(20) DEFAULT NULL,
+    AvatarUrl VARCHAR(500) DEFAULT NULL,
+    IsActive BIT(1) NOT NULL DEFAULT 1,
+    IsEmailVerified BIT(1) NOT NULL DEFAULT 0,
+    LastLoginAt DATETIME(6) DEFAULT NULL,
+    CreatedAt DATETIME(6) DEFAULT NULL,
+    UpdatedAt DATETIME(6) DEFAULT NULL,
+    PRIMARY KEY (UserID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS User_Roles (
+    UserID INT NOT NULL,
+    RoleID INT NOT NULL,
+    PRIMARY KEY (UserID, RoleID),
+    CONSTRAINT FK_UserRoles_User FOREIGN KEY (UserID) REFERENCES Users(UserID),
+    CONSTRAINT FK_UserRoles_Role FOREIGN KEY (RoleID) REFERENCES Roles(RoleID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS Teachers (
+    TeacherID INT NOT NULL AUTO_INCREMENT,
+    UserID INT DEFAULT NULL UNIQUE,
+    FullName VARCHAR(100) NOT NULL,
+    Email VARCHAR(255) DEFAULT NULL,
+    PhoneNumber VARCHAR(20) DEFAULT NULL,
+    AvatarUrl VARCHAR(500) DEFAULT NULL,
+    Status VARCHAR(20) DEFAULT NULL,
+    IsPhonePublic BIT(1) DEFAULT NULL,
+    PRIMARY KEY (TeacherID),
+    CONSTRAINT FK_Teachers_User FOREIGN KEY (UserID) REFERENCES Users(UserID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS Subjects (
+    SubjectID INT NOT NULL AUTO_INCREMENT,
+    SubjectCode VARCHAR(20) NOT NULL UNIQUE,
+    SubjectName VARCHAR(100) NOT NULL,
+    IsActive BIT(1) DEFAULT 1,
+    PRIMARY KEY (SubjectID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS SchoolYears (
+    SchoolYearID INT NOT NULL AUTO_INCREMENT,
+    YearName VARCHAR(20) NOT NULL,
+    StartDate DATE DEFAULT NULL,
+    EndDate DATE DEFAULT NULL,
+    IsActive BIT(1) DEFAULT 1,
+    PRIMARY KEY (SchoolYearID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS SchoolClasses (
+    ClassID INT NOT NULL AUTO_INCREMENT,
+    ClassName VARCHAR(50) NOT NULL,
+    SchoolYearID INT DEFAULT NULL,
+    HomeroomTeacherID INT DEFAULT NULL,
+    Status VARCHAR(20) DEFAULT NULL,
+    PRIMARY KEY (ClassID),
+    CONSTRAINT FK_Classes_SchoolYear FOREIGN KEY (SchoolYearID) REFERENCES SchoolYears(SchoolYearID),
+    CONSTRAINT FK_Classes_Teacher FOREIGN KEY (HomeroomTeacherID) REFERENCES Teachers(TeacherID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS Students (
+    StudentID INT NOT NULL AUTO_INCREMENT,
+    UserID INT DEFAULT NULL UNIQUE,
+    ClassID INT DEFAULT NULL,
+    StudentCode VARCHAR(50) DEFAULT NULL,
+    FullName VARCHAR(100) NOT NULL,
+    DateOfBirth DATE DEFAULT NULL,
+    Gender VARCHAR(10) DEFAULT NULL,
+    Address VARCHAR(255) DEFAULT NULL,
+    ParentName VARCHAR(100) DEFAULT NULL,
+    ParentPhone VARCHAR(20) DEFAULT NULL,
+    Status VARCHAR(20) DEFAULT NULL,
+    CreatedAt DATETIME(6) DEFAULT NULL,
+    UpdatedAt DATETIME(6) DEFAULT NULL,
+    PRIMARY KEY (StudentID),
+    CONSTRAINT FK_Students_User FOREIGN KEY (UserID) REFERENCES Users(UserID),
+    CONSTRAINT FK_Students_Class FOREIGN KEY (ClassID) REFERENCES SchoolClasses(ClassID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS TimeSlots (
+    TimeSlotID INT NOT NULL AUTO_INCREMENT,
+    SlotNumber INT NOT NULL,
+    StartTime TIME(6) NOT NULL,
+    EndTime TIME(6) NOT NULL,
+    SessionType ENUM('AFTERNOON','EVENING','MORNING') NOT NULL,
+    IsActive BIT(1) NOT NULL DEFAULT 1,
+    PRIMARY KEY (TimeSlotID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS Files (
+    FileID INT NOT NULL AUTO_INCREMENT,
+    UploadedByUserID INT DEFAULT NULL,
+    FileName VARCHAR(255) NOT NULL,
+    FileUrl VARCHAR(500) NOT NULL,
+    FileType VARCHAR(50) DEFAULT NULL,
+    FileSize BIGINT DEFAULT NULL,
+    CreatedAt DATETIME(6) DEFAULT NULL,
+    PRIMARY KEY (FileID),
+    CONSTRAINT FK_Files_User FOREIGN KEY (UploadedByUserID) REFERENCES Users(UserID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS RefreshTokens (
+    TokenID BIGINT NOT NULL AUTO_INCREMENT,
+    UserID INT NOT NULL,
+    TokenHash VARCHAR(255) NOT NULL UNIQUE,
+    ExpiryDate DATETIME(6) NOT NULL,
+    IsRevoked BIT(1) NOT NULL DEFAULT 0,
+    CreatedAt DATETIME(6) DEFAULT NULL,
+    PRIMARY KEY (TokenID),
+    CONSTRAINT FK_RefreshTokens_User FOREIGN KEY (UserID) REFERENCES Users(UserID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS Grades (
+    GradeID INT NOT NULL AUTO_INCREMENT,
+    StudentID INT DEFAULT NULL,
+    SubjectID INT DEFAULT NULL,
+    SchoolYearID INT DEFAULT NULL,
+    Semester INT NOT NULL,
+    AttendanceScore DECIMAL(4,2) NOT NULL DEFAULT 0.00,
+    MidtermScore DECIMAL(4,2) NOT NULL DEFAULT 0.00,
+    FinalScore DECIMAL(4,2) NOT NULL DEFAULT 0.00,
+    AverageScore DECIMAL(4,2) DEFAULT NULL,
+    LetterGrade VARCHAR(20) DEFAULT NULL,
+    GPA4 DECIMAL(3,1) DEFAULT NULL,
+    CreatedAt DATETIME(6) DEFAULT NULL,
+    UpdatedAt DATETIME(6) DEFAULT NULL,
+    PRIMARY KEY (GradeID),
+    CONSTRAINT FK_Grades_Student FOREIGN KEY (StudentID) REFERENCES Students(StudentID),
+    CONSTRAINT FK_Grades_Subject FOREIGN KEY (SubjectID) REFERENCES Subjects(SubjectID),
+    CONSTRAINT FK_Grades_SchoolYear FOREIGN KEY (SchoolYearID) REFERENCES SchoolYears(SchoolYearID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS TeacherAssignments (
+    AssignmentID INT NOT NULL AUTO_INCREMENT,
+    TeacherID INT NOT NULL,
+    SubjectID INT DEFAULT NULL,
+    ClassID INT NOT NULL,
+    RoleType VARCHAR(50) NOT NULL,
+    PRIMARY KEY (AssignmentID),
+    CONSTRAINT FK_TeacherAssignments_Teacher FOREIGN KEY (TeacherID) REFERENCES Teachers(TeacherID),
+    CONSTRAINT FK_TeacherAssignments_Subject FOREIGN KEY (SubjectID) REFERENCES Subjects(SubjectID),
+    CONSTRAINT FK_TeacherAssignments_Class FOREIGN KEY (ClassID) REFERENCES SchoolClasses(ClassID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS ClassSchedules (
+    ScheduleID INT NOT NULL AUTO_INCREMENT,
+    ClassID INT NOT NULL,
+    DayOfWeek ENUM('FRIDAY','MONDAY','SATURDAY','SUNDAY','THURSDAY','TUESDAY','WEDNESDAY') NOT NULL,
+    TimeSlotID INT NOT NULL,
+    SubjectID INT NOT NULL,
+    TeacherID INT NOT NULL,
+    RoomName VARCHAR(50) DEFAULT NULL,
+    Status VARCHAR(20) DEFAULT NULL,
+    PRIMARY KEY (ScheduleID),
+    UNIQUE KEY UK_Class_Day_Slot (ClassID, DayOfWeek, TimeSlotID),
+    CONSTRAINT FK_ClassSchedules_Class FOREIGN KEY (ClassID) REFERENCES SchoolClasses(ClassID),
+    CONSTRAINT FK_ClassSchedules_TimeSlot FOREIGN KEY (TimeSlotID) REFERENCES TimeSlots(TimeSlotID),
+    CONSTRAINT FK_ClassSchedules_Subject FOREIGN KEY (SubjectID) REFERENCES Subjects(SubjectID),
+    CONSTRAINT FK_ClassSchedules_Teacher FOREIGN KEY (TeacherID) REFERENCES Teachers(TeacherID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS LeaveRequests (
+    RequestID INT NOT NULL AUTO_INCREMENT,
+    StudentID INT NOT NULL,
+    RequestType VARCHAR(50) NOT NULL,
+    FromDate DATE NOT NULL,
+    ToDate DATE NOT NULL,
+    Reason VARCHAR(1000) NOT NULL,
+    Status VARCHAR(20) NOT NULL,
+    AttachmentFileID INT DEFAULT NULL,
+    ProcessedByUserID INT DEFAULT NULL,
+    AdminNote VARCHAR(1000) DEFAULT NULL,
+    ProcessedAt DATETIME(6) DEFAULT NULL,
+    CreatedAt DATETIME(6) DEFAULT NULL,
+    UpdatedAt DATETIME(6) DEFAULT NULL,
+    PRIMARY KEY (RequestID),
+    CONSTRAINT FK_LeaveRequests_Student FOREIGN KEY (StudentID) REFERENCES Students(StudentID),
+    CONSTRAINT FK_LeaveRequests_File FOREIGN KEY (AttachmentFileID) REFERENCES Files(FileID),
+    CONSTRAINT FK_LeaveRequests_User FOREIGN KEY (ProcessedByUserID) REFERENCES Users(UserID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS LeaveRequestStatusHistory (
+    HistoryID INT NOT NULL AUTO_INCREMENT,
+    RequestID INT NOT NULL,
+    OldStatus VARCHAR(50) DEFAULT NULL,
+    NewStatus VARCHAR(50) NOT NULL,
+    ChangedByUserID INT NOT NULL,
+    Note VARCHAR(1000) DEFAULT NULL,
+    ChangedAt DATETIME(6) DEFAULT NULL,
+    PRIMARY KEY (HistoryID),
+    CONSTRAINT FK_StatusHistory_Request FOREIGN KEY (RequestID) REFERENCES LeaveRequests(RequestID),
+    CONSTRAINT FK_StatusHistory_User FOREIGN KEY (ChangedByUserID) REFERENCES Users(UserID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS RewardDisciplineTypes (
+    TypeID INT NOT NULL AUTO_INCREMENT,
+    TypeCode VARCHAR(50) NOT NULL,
+    TypeName VARCHAR(100) NOT NULL,
+    GroupName VARCHAR(50) NOT NULL,
+    IsActive BIT(1) DEFAULT 1,
+    PRIMARY KEY (TypeID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS RewardDisciplines (
+    RecordID INT NOT NULL AUTO_INCREMENT,
+    StudentID INT NOT NULL,
+    TypeID INT NOT NULL,
+    SchoolYearID INT NOT NULL,
+    Semester INT DEFAULT NULL,
+    DecisionNumber VARCHAR(50) DEFAULT NULL,
+    Content VARCHAR(1000) DEFAULT NULL,
+    IssuedDate DATE NOT NULL,
+    IssuedByUserID INT DEFAULT NULL,
+    FileID INT DEFAULT NULL,
+    CreatedAt DATETIME(6) DEFAULT NULL,
+    UpdatedAt DATETIME(6) DEFAULT NULL,
+    PRIMARY KEY (RecordID),
+    CONSTRAINT FK_RewardDisciplines_Student FOREIGN KEY (StudentID) REFERENCES Students(StudentID),
+    CONSTRAINT FK_RewardDisciplines_Type FOREIGN KEY (TypeID) REFERENCES RewardDisciplineTypes(TypeID),
+    CONSTRAINT FK_RewardDisciplines_SchoolYear FOREIGN KEY (SchoolYearID) REFERENCES SchoolYears(SchoolYearID),
+    CONSTRAINT FK_RewardDisciplines_User FOREIGN KEY (IssuedByUserID) REFERENCES Users(UserID),
+    CONSTRAINT FK_RewardDisciplines_File FOREIGN KEY (FileID) REFERENCES Files(FileID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS Events (
+    EventID INT NOT NULL AUTO_INCREMENT,
+    Title VARCHAR(200) NOT NULL,
+    Description VARCHAR(1000) DEFAULT NULL,
+    StartAt DATETIME(6) DEFAULT NULL,
+    EndAt DATETIME(6) DEFAULT NULL,
+    Location VARCHAR(255) DEFAULT NULL,
+    Category VARCHAR(50) DEFAULT NULL,
+    Status VARCHAR(50) DEFAULT NULL,
+    BannerFileID INT DEFAULT NULL,
+    CreatedByUserID INT DEFAULT NULL,
+    PRIMARY KEY (EventID),
+    CONSTRAINT FK_Events_File FOREIGN KEY (BannerFileID) REFERENCES Files(FileID),
+    CONSTRAINT FK_Events_User FOREIGN KEY (CreatedByUserID) REFERENCES Users(UserID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS News (
+    NewsID INT NOT NULL AUTO_INCREMENT,
+    Title VARCHAR(255) NOT NULL,
+    Content LONGTEXT DEFAULT NULL,
+    ImageUrl VARCHAR(500) DEFAULT NULL,
+    Category VARCHAR(100) DEFAULT NULL,
+    PublishedDate DATETIME(6) DEFAULT NULL,
+    IsActive BIT(1) DEFAULT 1,
+    CreatedAt DATETIME(6) DEFAULT NULL,
+    UpdatedAt DATETIME(6) DEFAULT NULL,
+    PRIMARY KEY (NewsID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS Messages (
+    MessageID INT NOT NULL AUTO_INCREMENT,
+    SenderUserID INT NOT NULL,
+    ReceiverUserID INT NOT NULL,
+    Content VARCHAR(2000) NOT NULL,
+    SentAt DATETIME(6) DEFAULT NULL,
+    IsRead BIT(1) NOT NULL DEFAULT 0,
+    ReadAt DATETIME(6) DEFAULT NULL,
+    PRIMARY KEY (MessageID),
+    CONSTRAINT FK_Messages_Sender FOREIGN KEY (SenderUserID) REFERENCES Users(UserID),
+    CONSTRAINT FK_Messages_Receiver FOREIGN KEY (ReceiverUserID) REFERENCES Users(UserID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS Notifications (
+    NotificationID INT NOT NULL AUTO_INCREMENT,
+    UserID INT NOT NULL,
+    Title VARCHAR(200) NOT NULL,
+    Body VARCHAR(1000) NOT NULL,
+    Type VARCHAR(50) NOT NULL,
+    ReferenceID INT DEFAULT NULL,
+    IsRead BIT(1) NOT NULL DEFAULT 0,
+    CreatedAt DATETIME(6) DEFAULT NULL,
+    ReadAt DATETIME(6) DEFAULT NULL,
+    PRIMARY KEY (NotificationID),
+    CONSTRAINT FK_Notifications_User FOREIGN KEY (UserID) REFERENCES Users(UserID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS UserDeviceTokens (
+    TokenID INT NOT NULL AUTO_INCREMENT,
+    UserID INT NOT NULL,
+    DeviceToken VARCHAR(500) NOT NULL,
+    DeviceType VARCHAR(20) NOT NULL,
+    CreatedAt DATETIME(6) DEFAULT NULL,
+    LastActiveAt DATETIME(6) DEFAULT NULL,
+    PRIMARY KEY (TokenID),
+    CONSTRAINT FK_DeviceTokens_User FOREIGN KEY (UserID) REFERENCES Users(UserID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS Attendances (
+    AttendanceID INT NOT NULL AUTO_INCREMENT,
+    StudentID INT NOT NULL,
+    ClassID INT NOT NULL,
+    SubjectID INT DEFAULT NULL,
+    AttendanceDate DATE NOT NULL,
+    SlotNumber INT DEFAULT NULL,
+    Status VARCHAR(30) NOT NULL,
+    Note VARCHAR(255) DEFAULT NULL,
+    RecordedByUserID INT NOT NULL,
+    CreatedAt DATETIME(6) DEFAULT NULL,
+    UpdatedAt DATETIME(6) DEFAULT NULL,
+    PRIMARY KEY (AttendanceID),
+    CONSTRAINT FK_Attendances_Student FOREIGN KEY (StudentID) REFERENCES Students(StudentID),
+    CONSTRAINT FK_Attendances_Class FOREIGN KEY (ClassID) REFERENCES SchoolClasses(ClassID),
+    CONSTRAINT FK_Attendances_Subject FOREIGN KEY (SubjectID) REFERENCES Subjects(SubjectID),
+    CONSTRAINT FK_Attendances_User FOREIGN KEY (RecordedByUserID) REFERENCES Users(UserID)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+SET FOREIGN_KEY_CHECKS = 1;

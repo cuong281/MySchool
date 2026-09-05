@@ -9,6 +9,7 @@ class SchedulePeriodModel {
   final String? roomName;
   final int? classId;
   final String? className;
+  final int? subjectId;
 
   SchedulePeriodModel({
     required this.slotNumber,
@@ -19,6 +20,7 @@ class SchedulePeriodModel {
     this.roomName,
     this.classId,
     this.className,
+    this.subjectId,
   });
 
   factory SchedulePeriodModel.fromMap(Map<String, dynamic> map) {
@@ -31,6 +33,7 @@ class SchedulePeriodModel {
       roomName: map['roomName'],
       classId: map['classId']?.toInt(),
       className: map['className'],
+      subjectId: map['subjectId']?.toInt(),
     );
   }
 

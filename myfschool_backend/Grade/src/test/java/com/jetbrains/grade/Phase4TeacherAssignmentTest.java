@@ -165,13 +165,17 @@ public class Phase4TeacherAssignmentTest {
         // Authenticate as Teacher 1 (teacherId = 1, teaches Math / Subject 1)
         authenticateUser(8, "teacher_han", "Teacher", null, 1);
 
-        // Grade 17 is Student 1, Subject 1 (Math) -> Teacher 1 CAN update
+        // Find a Math grade (Subject 1) where Teacher 1 teaches Math -> Teacher 1 CAN update
+        Grade mathGrade = gradeRepository.findAll().stream()
+                .filter(g -> g.getSubject() != null && g.getSubject().getId().equals(1))
+                .findFirst().orElseThrow();
+
         Grade updateData = new Grade();
         updateData.setAttendanceScore(10.0);
         updateData.setMidtermScore(9.5);
         updateData.setFinalScore(10.0);
 
-        Grade updated = gradeService.update(17, updateData);
+        Grade updated = gradeService.update(mathGrade.getId(), updateData);
         assertNotNull(updated);
         assertEquals(10.0, updated.getAttendanceScore());
 

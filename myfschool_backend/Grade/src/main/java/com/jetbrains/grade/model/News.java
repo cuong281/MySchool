@@ -24,7 +24,8 @@ public class News {
     @Column(name = "Title", nullable = false, length = 255)
     private String title;
 
-    @Column(name = "Content", columnDefinition = "NVARCHAR(MAX)")
+    @Lob
+    @Column(name = "Content", columnDefinition = "LONGTEXT")
     private String content;
 
     @Column(name = "ImageUrl", length = 500)

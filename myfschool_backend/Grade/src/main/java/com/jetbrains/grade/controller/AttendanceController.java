@@ -1,8 +1,6 @@
 package com.jetbrains.grade.controller;
 
-import com.jetbrains.grade.dto.AttendanceCreateRequest;
-import com.jetbrains.grade.dto.AttendanceRecordDTO;
-import com.jetbrains.grade.dto.AttendanceSummaryDTO;
+import com.jetbrains.grade.dto.*;
 import com.jetbrains.grade.service.AttendanceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -49,6 +47,32 @@ public class AttendanceController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         LocalDate queryDate = date != null ? date : LocalDate.now();
         return ResponseEntity.ok(attendanceService.getClassAttendance(classId, queryDate));
+    }
+
+    @GetMapping("/class/{classId}/sheet")
+    @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
+    public ResponseEntity<AttendanceSheetDTO> getAttendanceSheet(
+            @PathVariable Integer classId,
+            @RequestParam(required = false) Integer subjectId,
+            @RequestParam Integer slotNumber,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate attendanceDate) {
+        LocalDate date = attendanceDate != null ? attendanceDate : LocalDate.now();
+        return ResponseEntity.ok(attendanceService.getAttendanceSheet(classId, subjectId, slotNumber, date));
+    }
+
+    @PostMapping("/batch")
+    @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
+    public ResponseEntity<List<AttendanceRecordDTO>> recordBatchAttendance(@RequestBody AttendanceBatchRequest req) {
+        return ResponseEntity.ok(attendanceService.recordBatchAttendance(req));
+    }
+
+    @GetMapping("/class/{classId}/history")
+    @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
+    public ResponseEntity<AttendanceClassHistoryDTO> getClassAttendanceHistory(
+            @PathVariable Integer classId,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate) {
+        return ResponseEntity.ok(attendanceService.getClassAttendanceHistory(classId, startDate, endDate));
     }
 
     @PostMapping

@@ -1,7 +1,12 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:myfschools/untils/app_color.dart';
+import 'package:myfschools/models/attendance_summary.dart';
+import 'package:myfschools/services/api_client.dart';
+import 'package:myfschools/services/attendance_api.dart';
+import 'package:myfschools/services/report_api.dart';
 import 'package:myfschools/services/user_session.dart';
+import 'package:myfschools/untils/app_color.dart';
 
 import 'login.dart';
 
@@ -16,6 +21,13 @@ class _ProfileScreenState extends State<ProfileScreen>
     with SingleTickerProviderStateMixin {
   late AnimationController _entryCtrl;
   bool _notifEnabled = true;
+  bool _isLoading = true;
+
+  // Real stats from APIs
+  Map<String, dynamic>? _adminDashboard;
+  List<Map<String, dynamic>> _teacherAssignments = [];
+  AttendanceSummary? _studentAttendance;
+  List<dynamic> _studentGrades = [];
 
   @override
   void initState() {
@@ -24,12 +36,65 @@ class _ProfileScreenState extends State<ProfileScreen>
       vsync: this,
       duration: const Duration(milliseconds: 700),
     )..forward();
+
+    _loadData();
   }
 
   @override
   void dispose() {
     _entryCtrl.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    final user = UserSession.instance.currentUser;
+    if (user == null) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+
+    if (mounted) setState(() => _isLoading = true);
+
+    try {
+      if (user.isAdmin) {
+        final dashboard = await ReportApi.instance.getAdminDashboard();
+        if (mounted) {
+          setState(() {
+            _adminDashboard = dashboard;
+            _isLoading = false;
+          });
+        }
+      } else if (user.isTeacher) {
+        final res = await ApiClient.instance.get(
+          Uri.parse('${ApiClient.baseUrl}/teachers/me/assignments'),
+        );
+        if (res.statusCode == 200) {
+          final list = jsonDecode(utf8.decode(res.bodyBytes)) as List<dynamic>;
+          _teacherAssignments = list.cast<Map<String, dynamic>>();
+        }
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+      } else {
+        final summary = await AttendanceApi.instance.getMyAttendanceSummary();
+        final gradeRes = await ApiClient.instance.get(
+          Uri.parse('${ApiClient.baseUrl}/grades/me'),
+        );
+        List<dynamic> grades = [];
+        if (gradeRes.statusCode == 200) {
+          grades = jsonDecode(utf8.decode(gradeRes.bodyBytes)) as List<dynamic>;
+        }
+        if (mounted) {
+          setState(() {
+            _studentAttendance = summary;
+            _studentGrades = grades;
+            _isLoading = false;
+          });
+        }
+      }
+    } catch (_) {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   Widget _animEntry(double delay, Widget child) {
@@ -51,183 +116,226 @@ class _ProfileScreenState extends State<ProfileScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.ttBg,
-      body: Stack(
-        children: [
-          // Header gradient background
-          Positioned(
-            top: 0, left: 0, right: 0,
-            height: 260,
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [AppColors.ttBlue900, AppColors.ttBlue500],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
+      body: RefreshIndicator(
+        onRefresh: _loadData,
+        color: AppColors.ttBlue700,
+        child: ListView(
+          padding: EdgeInsets.zero,
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            // ── Header (seamless gradient, full clearance for badges) ────────
+            _buildHeader(),
+            const SizedBox(height: 16),
+
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Column(
+                children: [
+                  // ── Real stats row based on role ─────────────────────────────
+                  _animEntry(0.05, _buildStatsRow()),
+                  const SizedBox(height: 20),
+
+                  // ── Role specific information cards ───────────────────────────
+                  ..._buildRoleInfoSections(),
+
+                  // ── Settings ───────────────────────────────────────────────
+                  _animEntry(0.32, _buildSectionLabel(
+                      Icons.settings_outlined, 'Cài đặt')),
+                  const SizedBox(height: 10),
+                  _animEntry(0.35, _buildSettingsCard()),
+
+                  const SizedBox(height: 20),
+
+                  // ── Logout ─────────────────────────────────────────────────
+                  _animEntry(0.42, _buildLogoutButton(context)),
+                  const SizedBox(height: 36),
+                ],
               ),
             ),
-          ),
-          // Decorative circles on header
-          Positioned(top: -30, right: -20,
-              child: Container(width: 160, height: 160,
-                  decoration: BoxDecoration(shape: BoxShape.circle,
-                      color: Colors.white.withOpacity(0.06)))),
-          Positioned(top: 60, right: 60,
-              child: Container(width: 60, height: 60,
-                  decoration: BoxDecoration(shape: BoxShape.circle,
-                      color: Colors.white.withOpacity(0.04)))),
-
-          SafeArea(
-            child: ListView(
-              padding: EdgeInsets.zero,
-              children: [
-                // ── Header ──────────────────────────────────────────────────
-                _buildHeader(),
-                const SizedBox(height: 12),
-
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Column(
-                    children: [
-                      // ── Stats row ──────────────────────────────────────────
-                      _animEntry(0.05, _buildStatsRow()),
-                      const SizedBox(height: 20),
-
-                      // ── Personal info ──────────────────────────────────────
-                      _animEntry(0.12, _buildSectionLabel(
-                          Icons.person_outline_rounded, 'Thông tin cá nhân')),
-                      const SizedBox(height: 10),
-                      _animEntry(0.15, _buildInfoCard([
-                        _InfoRow(icon: Icons.badge_outlined,       label: 'MS Hsinh',    value: UserSession.instance.currentUser?.studentCode ?? 'N/A'),
-                        _InfoRow(icon: Icons.cake_outlined,         label: 'Ngày sinh',   value: 'Chưa cập nhật'),
-                        _InfoRow(icon: Icons.wc_rounded,            label: 'Giới tính',   value: 'N/A'),
-                        _InfoRow(icon: Icons.email_outlined,        label: 'Email',       value: UserSession.instance.currentUser?.email ?? 'N/A'),
-                        _InfoRow(icon: Icons.phone_outlined,        label: 'Số điện thoại', value: UserSession.instance.currentUser?.phoneNumber ?? 'N/A'),
-                      ])),
-
-                      const SizedBox(height: 20),
-
-                      // ── Academic info ──────────────────────────────────────
-                      _animEntry(0.22, _buildSectionLabel(
-                          Icons.school_outlined, 'Thông tin học tập')),
-                      const SizedBox(height: 10),
-                      _animEntry(0.25, _buildInfoCard([
-                        _InfoRow(icon: Icons.class_outlined,        label: 'Lớp',         value: UserSession.instance.currentUser?.className ?? 'Chưa xếp lớp'),
-                        _InfoRow(icon: Icons.business_outlined,     label: 'Ngành',       value: 'Chưa cập nhật'),
-                        _InfoRow(icon: Icons.account_balance_outlined, label: 'Campus',   value: 'FPT HN – Hòa Lạc'),
-                        _InfoRow(icon: Icons.calendar_today_rounded, label: 'Khóa',       value: 'K17 (2021–2025)'),
-                      ])),
-
-                      const SizedBox(height: 20),
-
-                      // ── Settings ───────────────────────────────────────────
-                      _animEntry(0.32, _buildSectionLabel(
-                          Icons.settings_outlined, 'Cài đặt')),
-                      const SizedBox(height: 10),
-                      _animEntry(0.35, _buildSettingsCard()),
-
-                      const SizedBox(height: 20),
-
-                      // ── Logout ─────────────────────────────────────────────
-                      _animEntry(0.42, _buildLogoutButton(context)),
-                      const SizedBox(height: 32),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   // ── Header ────────────────────────────────────────────────────────────────
   Widget _buildHeader() {
-    return SizedBox(
-      height: 220,
+    final user = UserSession.instance.currentUser;
+    final username = user?.username ?? '';
+
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [AppColors.ttBlue900, AppColors.ttBlue500],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(28),
+          bottomRight: Radius.circular(28),
+        ),
+      ),
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          // Top bar
+          // Decorative circles
           Positioned(
-            top: 0, left: 0, right: 0,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 0),
-              child: Row(
-                children: [
-                  GestureDetector(
-                    onTap: () {
-                      HapticFeedback.lightImpact();
-                      Navigator.pop(context);
-                    },
-                    child: Container(
-                      width: 38, height: 38,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(11),
-                      ),
-                      child: const Icon(Icons.arrow_back_ios_new_rounded, size: 18, color: Colors.white),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  const Text('Cá nhân',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800,
-                          color: Colors.white, letterSpacing: 0.2)),
-                  const Spacer(),
-                  GestureDetector(
-                    onTap: () => HapticFeedback.lightImpact(),
-                    child: Container(
-                      width: 38, height: 38,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(11),
-                      ),
-                      child: const Icon(Icons.edit_outlined, size: 18, color: Colors.white),
-                    ),
-                  ),
-                ],
+            top: -30, right: -20,
+            child: Container(
+              width: 160, height: 160,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withOpacity(0.06),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 50, left: -25,
+            child: Container(
+              width: 90, height: 90,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: Colors.white.withOpacity(0.04),
               ),
             ),
           ),
 
-          // Avatar + name
-          Positioned(
-            bottom: 0, left: 0, right: 0,
-            child: Column(
-              children: [
-                // Avatar
-                Container(
-                  width: 84, height: 84,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 3),
-                    boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2),
-                        blurRadius: 16, offset: const Offset(0, 6))],
-                  ),
-                  child: ClipOval(
-                    child: Container(
-                      color: AppColors.ttBlue100,
-                      child: const Icon(Icons.person_rounded, size: 52, color: AppColors.ttBlue700),
+          SafeArea(
+            bottom: false,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Top bar
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 8, 14, 12),
+                    child: Row(
+                      children: [
+                        GestureDetector(
+                          onTap: () {
+                            HapticFeedback.lightImpact();
+                            Navigator.pop(context);
+                          },
+                          child: Container(
+                            width: 38, height: 38,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.18),
+                              borderRadius: BorderRadius.circular(11),
+                            ),
+                            child: const Icon(Icons.arrow_back_ios_new_rounded,
+                                size: 17, color: Colors.white),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Text(
+                          'Cá nhân',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                        const Spacer(),
+                        GestureDetector(
+                          onTap: () {
+                            HapticFeedback.lightImpact();
+                            _loadData();
+                          },
+                          child: Container(
+                            width: 38, height: 38,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withOpacity(0.18),
+                              borderRadius: BorderRadius.circular(11),
+                            ),
+                            child: const Icon(Icons.refresh_rounded,
+                                size: 20, color: Colors.white),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                ),
-                const SizedBox(height: 10),
-                Text(UserSession.instance.fullName,
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800,
-                        color: Colors.white, letterSpacing: 0.2)),
-                const SizedBox(height: 4),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(20),
+
+                  // Avatar
+                  Container(
+                    width: 86, height: 86,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white, width: 3.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 16,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
+                    child: ClipOval(
+                      child: Container(
+                        color: AppColors.ttBlue100,
+                        child: Icon(
+                          user?.isAdmin == true
+                              ? Icons.admin_panel_settings_rounded
+                              : user?.isTeacher == true
+                                  ? Icons.school_rounded
+                                  : Icons.person_rounded,
+                          size: 52,
+                          color: AppColors.ttBlue700,
+                        ),
+                      ),
+                    ),
                   ),
-                  child: Text('${UserSession.instance.currentUser?.username ?? ''}',
-                      style: const TextStyle(fontSize: 12, color: Colors.white70,
-                          fontWeight: FontWeight.w500)),
-                ),
-              ],
+                  const SizedBox(height: 12),
+
+                  // Full name with fallback
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Text(
+                      UserSession.instance.fullName,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 19,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                        letterSpacing: 0.2,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+
+                  // Badges row: Role badge + Username chip (fully visible, ample spacing)
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 8,
+                    runSpacing: 6,
+                    children: [
+                      _buildRoleBadge(),
+                      if (username.isNotEmpty)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 4.5),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.18),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                                color: Colors.white.withOpacity(0.25), width: 1),
+                          ),
+                          child: Text(
+                            '@$username',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -235,28 +343,435 @@ class _ProfileScreenState extends State<ProfileScreen>
     );
   }
 
-  // ── Stats row ─────────────────────────────────────────────────────────────
+  // ── Role badge ─────────────────────────────────────────────────────────────
+  Widget _buildRoleBadge() {
+    final user = UserSession.instance.currentUser;
+    if (user?.isAdmin == true) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4.5),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFF9500).withOpacity(0.25),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+              color: const Color(0xFFFFB340).withOpacity(0.6), width: 1),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.shield_rounded, size: 13, color: Color(0xFFFFD60A)),
+            SizedBox(width: 5),
+            Text(
+              'Quản trị viên',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (user?.isTeacher == true) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4.5),
+        decoration: BoxDecoration(
+          color: const Color(0xFF00C7BE).withOpacity(0.25),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+              color: const Color(0xFF63E6E2).withOpacity(0.6), width: 1),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.school_rounded, size: 13, color: Color(0xFF63E6E2)),
+            SizedBox(width: 5),
+            Text(
+              'Giáo viên',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 4.5),
+      decoration: BoxDecoration(
+        color: const Color(0xFF34C759).withOpacity(0.25),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+            color: const Color(0xFF30D158).withOpacity(0.6), width: 1),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.backpack_rounded, size: 13, color: Color(0xFF30D158)),
+          SizedBox(width: 5),
+          Text(
+            'Học sinh',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Stats row (100% Real API Data, No Mock Data) ──────────────────────────
   Widget _buildStatsRow() {
+    final user = UserSession.instance.currentUser;
+    if (user == null) return const SizedBox.shrink();
+
+    List<Widget> cells = [];
+
+    if (user.isAdmin) {
+      final sCount = _isLoading ? '...' : '${_adminDashboard?['totalStudents'] ?? 0}';
+      final tCount = _isLoading ? '...' : '${_adminDashboard?['totalTeachers'] ?? 0}';
+      final cCount = _isLoading ? '...' : '${_adminDashboard?['totalClasses'] ?? 0}';
+      final gCount = _isLoading ? '...' : '${_adminDashboard?['totalGrades'] ?? 0}';
+
+      cells = [
+        _StatCell(value: sCount, label: 'Học sinh', color: AppColors.ttBlue700),
+        _Divider(),
+        _StatCell(value: tCount, label: 'Giáo viên', color: const Color(0xFF2E7D32)),
+        _Divider(),
+        _StatCell(value: cCount, label: 'Lớp học', color: AppColors.ttOrange),
+        _Divider(),
+        _StatCell(value: gCount, label: 'Bản ghi điểm', color: const Color(0xFF6C3FB5)),
+      ];
+    } else if (user.isTeacher) {
+      final classes = _teacherAssignments
+          .map((e) => e['className']?.toString())
+          .where((s) => s != null && s.isNotEmpty)
+          .toSet();
+      final subjects = _teacherAssignments
+          .map((e) => e['subjectName']?.toString())
+          .where((s) => s != null && s.isNotEmpty)
+          .toSet();
+
+      final classCount = _isLoading ? '...' : '${classes.length}';
+      final subCount = _isLoading ? '...' : '${subjects.length}';
+      final assignCount = _isLoading ? '...' : '${_teacherAssignments.length}';
+
+      cells = [
+        _StatCell(value: classCount, label: 'Lớp dạy', color: AppColors.ttBlue700),
+        _Divider(),
+        _StatCell(value: subCount, label: 'Bộ môn', color: const Color(0xFF2E7D32)),
+        _Divider(),
+        _StatCell(value: assignCount, label: 'Phân công', color: AppColors.ttOrange),
+        _Divider(),
+        const _StatCell(value: 'Hoạt động', label: 'Trạng thái', color: Color(0xFF2E7D32)),
+      ];
+    } else {
+      // Student
+      String gpaStr = '-';
+      if (_studentGrades.isNotEmpty) {
+        final validAverages = _studentGrades
+            .map((g) => (g['averageScore'] as num?)?.toDouble())
+            .whereType<double>()
+            .toList();
+        if (validAverages.isNotEmpty) {
+          final avg = validAverages.reduce((a, b) => a + b) / validAverages.length;
+          gpaStr = avg.toStringAsFixed(1);
+        }
+      }
+
+      String attStr = '-';
+      if (_studentAttendance != null) {
+        attStr = '${_studentAttendance!.attendanceRate.toStringAsFixed(0)}%';
+      }
+
+      final uniqueSubs = _studentGrades
+          .map((g) => g['subjectCode']?.toString())
+          .whereType<String>()
+          .toSet();
+      final subCount = uniqueSubs.isNotEmpty ? '${uniqueSubs.length}' : '-';
+      final className = user.className.isNotEmpty ? user.className : '-';
+
+      cells = [
+        _StatCell(value: _isLoading ? '...' : gpaStr, label: 'Điểm TB', color: AppColors.ttBlue700),
+        _Divider(),
+        _StatCell(value: _isLoading ? '...' : attStr, label: 'Điểm danh', color: const Color(0xFF2E7D32)),
+        _Divider(),
+        _StatCell(value: _isLoading ? '...' : subCount, label: 'Môn học', color: AppColors.ttOrange),
+        _Divider(),
+        _StatCell(value: className, label: 'Lớp', color: const Color(0xFF6C3FB5)),
+      ];
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 14),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06),
-            blurRadius: 12, offset: const Offset(0, 4))],
-      ),
-      child: Row(
-        children: [
-          _StatCell(value: 'N/A', label: 'GPA', color: AppColors.ttBlue700),
-          _Divider(),
-          _StatCell(value: 'N/A', label: 'Điểm danh', color: const Color(0xFF2E7D32)),
-          _Divider(),
-          _StatCell(value: '2025', label: 'Khóa học', color: AppColors.ttOrange),
-          _Divider(),
-          _StatCell(value: 'N/A', label: 'Môn học', color: const Color(0xFF6C3FB5)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
         ],
       ),
+      child: Row(children: cells),
     );
+  }
+
+  // ── Role Information Sections (Only show existing fields, no mock data) ───
+  List<Widget> _buildRoleInfoSections() {
+    final user = UserSession.instance.currentUser;
+    if (user == null) return [];
+
+    final sections = <Widget>[];
+
+    if (user.isAdmin) {
+      final rows = <_InfoRow>[];
+      if (user.lastName.isNotEmpty || user.firstName.isNotEmpty) {
+        rows.add(_InfoRow(
+          icon: Icons.person_outline_rounded,
+          label: 'Họ và tên',
+          value: UserSession.instance.fullName,
+        ));
+      }
+      rows.add(_InfoRow(
+        icon: Icons.account_circle_outlined,
+        label: 'Tên đăng nhập',
+        value: user.username,
+      ));
+      rows.add(const _InfoRow(
+        icon: Icons.shield_outlined,
+        label: 'Vai trò hệ thống',
+        value: 'Quản trị viên',
+      ));
+      if (user.email.isNotEmpty) {
+        rows.add(_InfoRow(
+          icon: Icons.email_outlined,
+          label: 'Email',
+          value: user.email,
+        ));
+      }
+      if (user.phoneNumber.isNotEmpty) {
+        rows.add(_InfoRow(
+          icon: Icons.phone_outlined,
+          label: 'Số điện thoại',
+          value: user.phoneNumber,
+        ));
+      }
+      rows.add(const _InfoRow(
+        icon: Icons.check_circle_outline_rounded,
+        label: 'Trạng thái tài khoản',
+        value: 'Đang hoạt động',
+      ));
+
+      sections.add(_animEntry(0.12, _buildSectionLabel(
+          Icons.admin_panel_settings_outlined, 'Thông tin tài khoản')));
+      sections.add(const SizedBox(height: 10));
+      sections.add(_animEntry(0.15, _buildInfoCard(rows)));
+      sections.add(const SizedBox(height: 20));
+    } else if (user.isTeacher) {
+      final rows = <_InfoRow>[];
+      rows.add(_InfoRow(
+        icon: Icons.person_outline_rounded,
+        label: 'Họ và tên',
+        value: UserSession.instance.fullName,
+      ));
+      if (user.teacherId != null) {
+        rows.add(_InfoRow(
+          icon: Icons.badge_outlined,
+          label: 'Mã giáo viên',
+          value: 'GV${user.teacherId.toString().padLeft(3, '0')}',
+        ));
+      }
+      rows.add(_InfoRow(
+        icon: Icons.account_circle_outlined,
+        label: 'Tên đăng nhập',
+        value: user.username,
+      ));
+      rows.add(const _InfoRow(
+        icon: Icons.school_outlined,
+        label: 'Vai trò',
+        value: 'Giáo viên',
+      ));
+      if (user.email.isNotEmpty) {
+        rows.add(_InfoRow(
+          icon: Icons.email_outlined,
+          label: 'Email công vụ',
+          value: user.email,
+        ));
+      }
+      if (user.phoneNumber.isNotEmpty) {
+        rows.add(_InfoRow(
+          icon: Icons.phone_outlined,
+          label: 'Số điện thoại',
+          value: user.phoneNumber,
+        ));
+      }
+      rows.add(const _InfoRow(
+        icon: Icons.check_circle_outline_rounded,
+        label: 'Trạng thái',
+        value: 'Đang công tác',
+      ));
+
+      sections.add(_animEntry(0.12, _buildSectionLabel(
+          Icons.work_outline_rounded, 'Thông tin công tác')));
+      sections.add(const SizedBox(height: 10));
+      sections.add(_animEntry(0.15, _buildInfoCard(rows)));
+      sections.add(const SizedBox(height: 20));
+
+      // Phân công giảng dạy nếu có dữ liệu
+      if (_teacherAssignments.isNotEmpty) {
+        final classes = _teacherAssignments
+            .map((e) => e['className']?.toString())
+            .where((s) => s != null && s.isNotEmpty)
+            .toSet()
+            .toList();
+        final subjects = _teacherAssignments
+            .map((e) => e['subjectName']?.toString())
+            .where((s) => s != null && s.isNotEmpty)
+            .toSet()
+            .toList();
+        final roles = _teacherAssignments
+            .map((e) => e['roleType'] == 'HOMEROOM_TEACHER'
+                ? 'GV Chủ nhiệm (${e['className']})'
+                : 'GV Bộ môn (${e['subjectName']})')
+            .toSet()
+            .toList();
+
+        final assignRows = <_InfoRow>[];
+        if (classes.isNotEmpty) {
+          assignRows.add(_InfoRow(
+            icon: Icons.class_outlined,
+            label: 'Lớp giảng dạy',
+            value: classes.join(', '),
+          ));
+        }
+        if (subjects.isNotEmpty) {
+          assignRows.add(_InfoRow(
+            icon: Icons.menu_book_outlined,
+            label: 'Bộ môn',
+            value: subjects.join(', '),
+          ));
+        }
+        if (roles.isNotEmpty) {
+          assignRows.add(_InfoRow(
+            icon: Icons.assignment_ind_outlined,
+            label: 'Nhiệm vụ',
+            value: roles.join('\n'),
+          ));
+        }
+
+        if (assignRows.isNotEmpty) {
+          sections.add(_animEntry(0.22, _buildSectionLabel(
+              Icons.menu_book_outlined, 'Phân công giảng dạy')));
+          sections.add(const SizedBox(height: 10));
+          sections.add(_animEntry(0.25, _buildInfoCard(assignRows)));
+          sections.add(const SizedBox(height: 20));
+        }
+      }
+    } else {
+      // Student
+      final personalRows = <_InfoRow>[];
+      personalRows.add(_InfoRow(
+        icon: Icons.person_outline_rounded,
+        label: 'Họ và tên',
+        value: UserSession.instance.fullName,
+      ));
+      if (user.studentCode.isNotEmpty) {
+        personalRows.add(_InfoRow(
+          icon: Icons.badge_outlined,
+          label: 'Mã học sinh',
+          value: user.studentCode,
+        ));
+      }
+      personalRows.add(_InfoRow(
+        icon: Icons.account_circle_outlined,
+        label: 'Tên đăng nhập',
+        value: user.username,
+      ));
+      if (user.email.isNotEmpty) {
+        personalRows.add(_InfoRow(
+          icon: Icons.email_outlined,
+          label: 'Email',
+          value: user.email,
+        ));
+      }
+      if (user.phoneNumber.isNotEmpty) {
+        personalRows.add(_InfoRow(
+          icon: Icons.phone_outlined,
+          label: 'Số điện thoại',
+          value: user.phoneNumber,
+        ));
+      }
+      if (user.dateOfBirth != null && user.dateOfBirth!.isNotEmpty) {
+        personalRows.add(_InfoRow(
+          icon: Icons.cake_outlined,
+          label: 'Ngày sinh',
+          value: user.dateOfBirth!,
+        ));
+      }
+      if (user.gender != null && user.gender!.isNotEmpty) {
+        personalRows.add(_InfoRow(
+          icon: Icons.wc_rounded,
+          label: 'Giới tính',
+          value: user.gender!,
+        ));
+      }
+      if (user.address != null && user.address!.isNotEmpty) {
+        personalRows.add(_InfoRow(
+          icon: Icons.home_outlined,
+          label: 'Địa chỉ',
+          value: user.address!,
+        ));
+      }
+
+      sections.add(_animEntry(0.12, _buildSectionLabel(
+          Icons.person_outline_rounded, 'Thông tin cá nhân')));
+      sections.add(const SizedBox(height: 10));
+      sections.add(_animEntry(0.15, _buildInfoCard(personalRows)));
+      sections.add(const SizedBox(height: 20));
+
+      if (user.className.isNotEmpty || user.classId != null) {
+        final academicRows = <_InfoRow>[];
+        if (user.className.isNotEmpty) {
+          academicRows.add(_InfoRow(
+            icon: Icons.class_outlined,
+            label: 'Lớp',
+            value: user.className,
+          ));
+        }
+        if (user.classId != null) {
+          academicRows.add(_InfoRow(
+            icon: Icons.tag_rounded,
+            label: 'Mã lớp',
+            value: 'LOP${user.classId.toString().padLeft(3, '0')}',
+          ));
+        }
+        academicRows.add(const _InfoRow(
+          icon: Icons.verified_outlined,
+          label: 'Tình trạng',
+          value: 'Đang theo học',
+        ));
+
+        sections.add(_animEntry(0.22, _buildSectionLabel(
+            Icons.school_outlined, 'Thông tin lớp học')));
+        sections.add(const SizedBox(height: 10));
+        sections.add(_animEntry(0.25, _buildInfoCard(academicRows)));
+        sections.add(const SizedBox(height: 20));
+      }
+    }
+
+    return sections;
   }
 
   // ── Section label ─────────────────────────────────────────────────────────
@@ -281,12 +796,19 @@ class _ProfileScreenState extends State<ProfileScreen>
 
   // ── Info card ─────────────────────────────────────────────────────────────
   Widget _buildInfoCard(List<_InfoRow> rows) {
+    if (rows.isEmpty) return const SizedBox.shrink();
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05),
-            blurRadius: 10, offset: const Offset(0, 3))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Column(
         children: List.generate(rows.length, (i) {
@@ -340,8 +862,13 @@ class _ProfileScreenState extends State<ProfileScreen>
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05),
-            blurRadius: 10, offset: const Offset(0, 3))],
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
       ),
       child: Column(
         children: [
@@ -374,27 +901,27 @@ class _ProfileScreenState extends State<ProfileScreen>
           Divider(height: 1, indent: 58, color: AppColors.ttBlue100.withOpacity(0.5)),
 
           // Language
-          _SettingsTile(
+          const _SettingsTile(
             icon: Icons.language_outlined,
             label: 'Ngôn ngữ',
-            trailing: const Text('Tiếng Việt',
+            trailing: Text('Tiếng Việt',
                 style: TextStyle(fontSize: 13, color: AppColors.hint, fontWeight: FontWeight.w500)),
           ),
           Divider(height: 1, indent: 58, color: AppColors.ttBlue100.withOpacity(0.5)),
 
           // Change password
-          _SettingsTile(
+          const _SettingsTile(
             icon: Icons.lock_outline_rounded,
             label: 'Đổi mật khẩu',
-            trailing: const Icon(Icons.chevron_right_rounded, color: AppColors.hint, size: 20),
+            trailing: Icon(Icons.chevron_right_rounded, color: AppColors.hint, size: 20),
           ),
           Divider(height: 1, indent: 58, color: AppColors.ttBlue100.withOpacity(0.5)),
 
           // About
-          _SettingsTile(
+          const _SettingsTile(
             icon: Icons.info_outline_rounded,
             label: 'Về ứng dụng',
-            trailing: const Text('v1.0.0',
+            trailing: Text('v1.0.0',
                 style: TextStyle(fontSize: 13, color: AppColors.hint, fontWeight: FontWeight.w500)),
           ),
         ],
@@ -406,17 +933,12 @@ class _ProfileScreenState extends State<ProfileScreen>
   Widget _buildLogoutButton(BuildContext context) {
     return GestureDetector(
       onTap: () {
-        // 1. Tạo hiệu ứng rung
         HapticFeedback.mediumImpact();
-
-        // 2. Xoá session user
         UserSession.instance.clear();
-
-        // 3. Thực hiện điều hướng về trang Login
         Navigator.pushAndRemoveUntil(
           context,
           MaterialPageRoute(builder: (context) => const LoginScreen()),
-              (route) => false,
+          (route) => false,
         );
       },
       child: Container(
@@ -470,12 +992,20 @@ class _StatCell extends StatelessWidget {
     return Expanded(
       child: Column(
         children: [
-          Text(value,
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: color)),
+          Text(
+            value,
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: color),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
           const SizedBox(height: 3),
-          Text(label,
-              style: const TextStyle(fontSize: 10.5, color: AppColors.hint,
-                  fontWeight: FontWeight.w500)),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 10.5, color: AppColors.hint,
+                fontWeight: FontWeight.w500),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
         ],
       ),
     );
