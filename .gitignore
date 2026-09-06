@@ -1,3 +1,7 @@
+# Security keys & credentials
+*.pem
+*.key
+
 # Temporary and local scratch directories
 scratch/
 *.log
