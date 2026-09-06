@@ -79,24 +79,36 @@ class AttendanceApi {
         body: jsonEncode(req.toJson()),
       );
 
-      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      dynamic decoded;
+      try {
+        decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      } catch (_) {
+        decoded = null;
+      }
 
       if (response.statusCode == 200 || response.statusCode == 201) {
+        String message = 'Lưu điểm danh thành công';
+        if (decoded is Map<String, dynamic> && decoded['message'] != null) {
+          message = decoded['message'].toString();
+        }
         return {
           'success': true,
-          'message': decoded['message'] ?? 'Lưu điểm danh thành công',
+          'message': message,
+          'data': decoded,
         };
       } else if (response.statusCode == 409) {
+        final map = decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
         return {
           'success': false,
-          'conflict': LeaveConflictError.fromJson(decoded is Map<String, dynamic> ? decoded : {}),
-          'message': decoded['message'] ?? 'Học sinh có đơn nghỉ phép được duyệt.',
+          'conflict': LeaveConflictError.fromJson(map),
+          'message': map['message'] ?? 'Học sinh có đơn nghỉ phép được duyệt.',
         };
       } else {
+        final map = decoded is Map<String, dynamic> ? decoded : <String, dynamic>{};
         return {
           'success': false,
           'status': response.statusCode,
-          'message': decoded['message'] ?? 'Không thể lưu điểm danh (${response.statusCode})',
+          'message': map['message'] ?? 'Không thể lưu điểm danh (${response.statusCode})',
         };
       }
     } catch (e) {

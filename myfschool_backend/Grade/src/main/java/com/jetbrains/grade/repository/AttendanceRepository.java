@@ -35,4 +35,9 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Integer>
             Integer classId, LocalDate start, LocalDate end);
 
     List<Attendance> findBySchoolClassIdOrderByAttendanceDateDescSlotNumberDesc(Integer classId);
+
+    @org.springframework.data.jpa.repository.Query("SELECT a.student.id AS studentId, a.status AS status, COUNT(a.id) AS count " +
+           "FROM Attendance a WHERE a.schoolClass.id = :classId GROUP BY a.student.id, a.status")
+    List<com.jetbrains.grade.dto.AttendanceStatusCountProjection> countAttendanceByClassGroupedByStudentAndStatus(
+            @org.springframework.data.repository.query.Param("classId") Integer classId);
 }

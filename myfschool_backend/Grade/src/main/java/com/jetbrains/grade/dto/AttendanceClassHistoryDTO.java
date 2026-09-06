@@ -14,6 +14,7 @@ import java.util.List;
 public class AttendanceClassHistoryDTO {
     private Integer classId;
     private String className;
+    private Integer totalStudents;
     private Double attendanceRate;
     private Integer totalSessions;
     private Integer presentCount;
@@ -22,4 +23,5 @@ public class AttendanceClassHistoryDTO {
     private Integer lateCount;
     private List<AttendanceSessionSummaryDTO> sessions;
     private List<AttendanceAtRiskStudentDTO> atRiskStudents;
+    private List<AttendanceStudentSummaryDTO> studentSummaries;
 }

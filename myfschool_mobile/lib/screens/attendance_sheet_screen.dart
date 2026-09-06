@@ -603,7 +603,13 @@ class _AttendanceSheetScreenState extends State<AttendanceSheetScreen> {
     Color textColor = Colors.amber.shade900;
     String message = 'Buổi học này đang ở chế độ chỉ xem.';
 
-    if (s.lockReason == 'NOT_STARTED') {
+    if (s.lockReason == 'NO_SCHEDULE') {
+      icon = Icons.event_busy;
+      bgColor = Colors.orange.shade50;
+      borderColor = Colors.orange.shade200;
+      textColor = Colors.orange.shade900;
+      message = 'Tiết học này không có trong thời khóa biểu của lớp (Chỉ xem).';
+    } else if (s.lockReason == 'NOT_STARTED') {
       icon = Icons.schedule;
       message = 'Chưa tới giờ học. Tiết học bắt đầu lúc ${s.startTime ?? ''}. Bạn chưa thể điểm danh.';
     } else if (s.lockReason == 'EXPIRED_PAST_DAY') {
@@ -611,6 +617,11 @@ class _AttendanceSheetScreenState extends State<AttendanceSheetScreen> {
       borderColor = Colors.grey.shade300;
       textColor = Colors.grey.shade800;
       message = 'Tiết học thuộc ngày trong quá khứ đã khóa sổ. Dữ liệu chỉ ở chế độ xem.';
+    } else if (s.lockReason == 'FUTURE_DATE') {
+      bgColor = Colors.grey.shade100;
+      borderColor = Colors.grey.shade300;
+      textColor = Colors.grey.shade800;
+      message = 'Buổi học ở ngày trong tương lai. Bạn chưa thể điểm danh.';
     }
 
     return Container(

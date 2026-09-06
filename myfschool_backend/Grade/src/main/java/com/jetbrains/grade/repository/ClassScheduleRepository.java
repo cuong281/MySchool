@@ -32,4 +32,17 @@ public interface ClassScheduleRepository extends JpaRepository<ClassSchedule, In
         ORDER BY cs.dayOfWeek ASC, cs.timeSlot.slotNumber ASC
     """)
     List<ClassSchedule> findByTeacherIdWithDetails(@Param("teacherId") Integer teacherId);
+
+    @Query("""
+        SELECT cs FROM ClassSchedule cs
+        WHERE cs.schoolClass.id = :classId
+          AND cs.dayOfWeek = :dayOfWeek
+          AND cs.timeSlot.slotNumber = :slotNumber
+          AND cs.status = 'ACTIVE'
+    """)
+    java.util.Optional<ClassSchedule> findActiveClassSchedule(
+            @Param("classId") Integer classId,
+            @Param("dayOfWeek") com.jetbrains.grade.model.DayOfWeekVN dayOfWeek,
+            @Param("slotNumber") Integer slotNumber
+    );
 }

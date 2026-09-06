@@ -32,6 +32,7 @@ public class AttendanceService {
     private final TimeSlotRepository timeSlotRepository;
     private final LeaveRequestRepository leaveRequestRepository;
     private final SecurityAuditService securityAuditService;
+    private final ClassScheduleRepository classScheduleRepository;
 
     @Transactional
     public AttendanceRecordDTO recordAttendance(AttendanceCreateRequest req) {
@@ -272,25 +273,32 @@ public class AttendanceService {
         boolean canEdit = true;
         String lockReason = null;
 
-        if (!SecurityUtils.isAdmin()) {
-            LocalDate today = LocalDate.now();
-            LocalTime now = LocalTime.now();
+        LocalDate today = LocalDate.now();
+        LocalTime now = LocalTime.now();
 
-            if (attendanceDate.isAfter(today)) {
-                canEdit = false;
-                lockReason = "FUTURE_DATE";
-            } else if (attendanceDate.isBefore(today)) {
-                canEdit = false;
-                lockReason = "EXPIRED_PAST_DAY";
-            } else {
-                if (startTime != null && now.isBefore(startTime)) {
-                    canEdit = false;
-                    lockReason = "NOT_STARTED";
-                } else {
-                    canEdit = true;
-                    lockReason = null;
-                }
-            }
+        // 1. Kiểm tra lịch học trong thời khóa biểu (ClassSchedule)
+        String dayOfWeekName = attendanceDate.getDayOfWeek().name();
+        boolean hasSchedule = false;
+        try {
+            com.jetbrains.grade.model.DayOfWeekVN dayEnum = com.jetbrains.grade.model.DayOfWeekVN.valueOf(dayOfWeekName);
+            hasSchedule = (slotNumber != null) && classScheduleRepository.findActiveClassSchedule(classId, dayEnum, slotNumber).isPresent();
+        } catch (Exception ignored) {}
+
+        if (!hasSchedule) {
+            canEdit = false;
+            lockReason = "NO_SCHEDULE";
+        } else if (attendanceDate.isAfter(today)) {
+            canEdit = false;
+            lockReason = "FUTURE_DATE";
+        } else if (attendanceDate.isBefore(today)) {
+            canEdit = false;
+            lockReason = "EXPIRED_PAST_DAY";
+        } else if (startTime != null && now.isBefore(startTime)) {
+            canEdit = false;
+            lockReason = "NOT_STARTED";
+        } else {
+            canEdit = true;
+            lockReason = null;
         }
 
         List<Student> students = studentRepository.findBySchoolClassIdOrderByFullNameAsc(classId);
@@ -371,10 +379,10 @@ public class AttendanceService {
         }
         LocalTime startTime = slotOpt.map(TimeSlot::getStartTime).orElse(null);
 
-        if (!SecurityUtils.isAdmin()) {
-            LocalDate today = LocalDate.now();
-            LocalTime now = LocalTime.now();
+        LocalDate today = LocalDate.now();
+        LocalTime now = LocalTime.now();
 
+        if (!SecurityUtils.isAdmin()) {
             if (req.getAttendanceDate().isAfter(today)) {
                 throw new IllegalArgumentException("Không thể điểm danh cho ngày trong tương lai");
             }
@@ -383,6 +391,19 @@ public class AttendanceService {
             }
             if (startTime != null && now.isBefore(startTime)) {
                 throw new IllegalArgumentException("Chưa đến thời gian bắt đầu tiết học (bắt đầu lúc " + startTime + ")");
+            }
+
+            // Kiểm tra lịch học trong thời khóa biểu (ClassSchedule)
+            String dayOfWeekName = req.getAttendanceDate().getDayOfWeek().name();
+            boolean hasSchedule = false;
+            try {
+                com.jetbrains.grade.model.DayOfWeekVN dayEnum = com.jetbrains.grade.model.DayOfWeekVN.valueOf(dayOfWeekName);
+                hasSchedule = classScheduleRepository.findActiveClassSchedule(req.getClassId(), dayEnum, req.getSlotNumber()).isPresent();
+            } catch (Exception ignored) {}
+
+            if (!hasSchedule) {
+                throw new IllegalArgumentException("Không có lịch học trong thời khóa biểu cho tiết "
+                        + req.getSlotNumber() + " vào " + dayOfWeekName + " (" + req.getAttendanceDate() + ")");
             }
         }
 
@@ -580,6 +601,12 @@ public class AttendanceService {
         LocalDate today = LocalDate.now();
         LocalTime now = LocalTime.now();
 
+        List<com.jetbrains.grade.model.ClassSchedule> classSchedules = classScheduleRepository.findBySchoolClassIdWithDetails(classId);
+        Set<String> scheduledSlots = classSchedules.stream()
+                .filter(cs -> "ACTIVE".equalsIgnoreCase(cs.getStatus()))
+                .map(cs -> cs.getDayOfWeek().name() + "_" + cs.getTimeSlot().getSlotNumber())
+                .collect(Collectors.toSet());
+
         List<AttendanceSessionSummaryDTO> sessionSummaries = new ArrayList<>();
         int totalPresent = 0;
         int totalExcused = 0;
@@ -619,15 +646,19 @@ public class AttendanceService {
             totalUnexcused += unexc;
             totalLate += late;
 
+            // Kiểm tra: Phải có lịch học trong thời khóa biểu + chỉ điểm danh trong ngày + đến tiết mới được điểm danh
+            String dayOfWeekName = sessDate.getDayOfWeek().name();
+            boolean hasSchedule = scheduledSlots.contains(dayOfWeekName + "_" + slotNum);
+
             boolean canEdit = true;
-            if (!SecurityUtils.isAdmin()) {
-                if (sessDate.isBefore(today) || sessDate.isAfter(today)) {
+            if (!hasSchedule) {
+                canEdit = false;
+            } else if (sessDate.isBefore(today) || sessDate.isAfter(today)) {
+                canEdit = false;
+            } else {
+                TimeSlot slot = slotMap.get(slotNum);
+                if (slot != null && slot.getStartTime() != null && now.isBefore(slot.getStartTime())) {
                     canEdit = false;
-                } else {
-                    TimeSlot slot = slotMap.get(slotNum);
-                    if (slot != null && slot.getStartTime() != null && now.isBefore(slot.getStartTime())) {
-                        canEdit = false;
-                    }
                 }
             }
 
@@ -650,39 +681,78 @@ public class AttendanceService {
         double overallRate = totalAll == 0 ? 100.0 :
                 Math.round(((totalPresent * 1.0 + totalExcused * 0.8 + totalLate * 0.5) / (totalAll * 1.0) * 100.0) * 10.0) / 10.0;
 
-        // At-risk students calculation
+        // In-memory student summaries calculation (Zero N+1 query)
         List<Student> classStudents = studentRepository.findBySchoolClassIdOrderByFullNameAsc(classId);
         Map<Integer, List<Attendance>> studentRecords = records.stream()
                 .collect(Collectors.groupingBy(a -> a.getStudent().getId()));
 
+        List<AttendanceStudentSummaryDTO> studentSummaries = new ArrayList<>();
         List<AttendanceAtRiskStudentDTO> atRisk = new ArrayList<>();
+
         for (Student s : classStudents) {
             List<Attendance> sList = studentRecords.getOrDefault(s.getId(), List.of());
-            long unexc = sList.stream().filter(a -> "UNEXCUSED_ABSENCE".equals(a.getStatus())).count();
-            long exc = sList.stream().filter(a -> "EXCUSED_ABSENCE".equals(a.getStatus())).count();
-            long lat = sList.stream().filter(a -> "LATE".equals(a.getStatus())).count();
-            long pr = sList.stream().filter(a -> "PRESENT".equals(a.getStatus())).count();
-            long sTotal = unexc + exc + lat + pr;
+            int unexc = 0;
+            int exc = 0;
+            int lat = 0;
+            int pr = 0;
+            List<AttendanceRecordDTO> sRecordDTOs = new ArrayList<>();
 
+            for (Attendance a : sList) {
+                String st = a.getStatus();
+                if ("PRESENT".equals(st)) pr++;
+                else if ("EXCUSED_ABSENCE".equals(st)) exc++;
+                else if ("UNEXCUSED_ABSENCE".equals(st)) unexc++;
+                else if ("LATE".equals(st)) lat++;
+                sRecordDTOs.add(mapToDTO(a));
+            }
+
+            int sTotal = unexc + exc + lat + pr;
+            // Standard individual rate: (Present / Actually Tracked Sessions) * 100%
+            // Avoid dividing by class total sessions to correctly handle new students who transferred mid-semester
             double sRate = sTotal == 0 ? 100.0 :
-                    Math.round(((pr * 1.0 + exc * 0.8 + lat * 0.5) / (sTotal * 1.0) * 100.0) * 10.0) / 10.0;
+                    Math.round(((pr * 1.0) / (sTotal * 1.0) * 100.0) * 10.0) / 10.0;
+
+            boolean isCritical = unexc >= 3 || sRate < 70.0;
+            boolean isWarning = unexc >= 1 || lat >= 3 || sRate < 85.0;
+
+            String warningNote = "Chuyên cần tốt";
+            if (isCritical) {
+                warningNote = "Nguy cơ cấm thi";
+            } else if (isWarning) {
+                warningNote = "Cảnh báo chuyên cần";
+            }
 
             if (unexc >= 2 || sRate < 85.0) {
-                String warning = (unexc >= 3 || sRate < 70.0) ? "Nguy cơ cấm thi" : "Cảnh báo chuyên cần";
                 atRisk.add(AttendanceAtRiskStudentDTO.builder()
                         .studentId(s.getId())
                         .studentName(s.getFullName())
                         .studentCode(s.getStudentCode())
-                        .unexcusedCount((int) unexc)
+                        .unexcusedCount(unexc)
                         .rate(sRate)
-                        .warningNote(warning)
+                        .warningNote(warningNote)
                         .build());
             }
+
+            studentSummaries.add(AttendanceStudentSummaryDTO.builder()
+                    .studentId(s.getId())
+                    .studentName(s.getFullName())
+                    .studentCode(s.getStudentCode())
+                    .presentCount(pr)
+                    .excusedCount(exc)
+                    .unexcusedCount(unexc)
+                    .lateCount(lat)
+                    .totalTrackedSessions(sTotal)
+                    .attendanceRate(sRate)
+                    .isAtRisk(isCritical || isWarning)
+                    .warningNote(warningNote)
+                    .records(sRecordDTOs)
+                    .build());
         }
 
         return AttendanceClassHistoryDTO.builder()
                 .classId(schoolClass.getId())
                 .className(schoolClass.getClassName())
+                .totalStudents(classStudents.size())
                 .attendanceRate(overallRate)
                 .totalSessions(sessionSummaries.size())
                 .presentCount(totalPresent)
@@ -691,6 +761,7 @@ public class AttendanceService {
                 .lateCount(totalLate)
                 .sessions(sessionSummaries)
                 .atRiskStudents(atRisk)
+                .studentSummaries(studentSummaries)
                 .build();
     }
 

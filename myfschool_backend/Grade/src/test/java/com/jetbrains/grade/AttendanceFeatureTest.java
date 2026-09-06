@@ -55,6 +55,9 @@ public class AttendanceFeatureTest {
     @Autowired
     private TeacherRepository teacherRepository;
 
+    @Autowired
+    private ClassScheduleRepository classScheduleRepository;
+
     private void authenticateUser(int userId, String username, String roleName, Integer studentId, Integer teacherId) {
         Role role = new Role();
         role.setId(roleName.equals("Admin") ? 1 : (roleName.equals("Teacher") ? 4 : 3));
@@ -363,6 +366,16 @@ public class AttendanceFeatureTest {
         openSlot.setIsActive(true);
         openSlot = timeSlotRepository.saveAndFlush(openSlot);
 
+        Teacher teacher1 = teacherRepository.findById(1).orElseThrow();
+        com.jetbrains.grade.model.ClassSchedule testSchedule = new com.jetbrains.grade.model.ClassSchedule();
+        testSchedule.setSchoolClass(sc);
+        testSchedule.setTimeSlot(openSlot);
+        testSchedule.setTeacher(teacher1);
+        testSchedule.setSubject(subjectRepository.findAll().get(0));
+        testSchedule.setDayOfWeek(com.jetbrains.grade.model.DayOfWeekVN.valueOf(LocalDate.now().getDayOfWeek().name()));
+        testSchedule.setStatus("ACTIVE");
+        classScheduleRepository.saveAndFlush(testSchedule);
+
         // User 1 creates attendance
         authenticateUser(1, "admin", "Admin", null, null);
 
@@ -384,7 +397,7 @@ public class AttendanceFeatureTest {
         assertEquals(1, initialCreatorUserId);
 
         // User 2 (Teacher 1) updates attendance
-        Teacher teacher1 = teacherRepository.findById(1).orElseThrow();
+        teacher1 = teacherRepository.findById(1).orElseThrow();
         authenticateUser(teacher1.getUser().getId(), teacher1.getUser().getUsername(), "Teacher", null, 1);
 
         AttendanceBatchRequest reqUpdate = AttendanceBatchRequest.builder()

@@ -577,7 +577,7 @@ class _GradeScreenState extends State<GradeScreen>
     // Filtered by current semester for stats
     final sem = _selectedSemester == 'HK1' ? 1 : (_selectedSemester == 'HK2' ? 2 : 0);
     final targetGrades = sem == 0
-        ? allGrades
+        ? _calculateAnnualGrades(allGrades)
         : allGrades.where((g) => g.semester == sem).toList();
 
     double avgGpa = 0.0;

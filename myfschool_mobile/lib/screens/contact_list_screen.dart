@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import '../models/contact_model.dart';
 import '../services/contact_service.dart';
 import '../services/user_session.dart';
-import '../untils/app_color.dart';
 import 'contact_detail_screen.dart';
 import 'chat_screen.dart';
 
@@ -961,35 +960,6 @@ class _ContactListScreenState extends State<ContactListScreen> with SingleTicker
                         ],
                       ),
                     ),
-                  ],
-                ),
-                const Divider(height: 18, thickness: 0.6),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton.icon(
-                      style: TextButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      onPressed: () => _copyToClipboard(contact.email, 'email'),
-                      icon: const Icon(Icons.mail_outline, size: 14, color: Color(0xFF2563EB)),
-                      label: const Text('Email', style: TextStyle(fontSize: 12, color: Color(0xFF2563EB))),
-                    ),
-                    if (contact.phoneNumber.isNotEmpty) ...[
-                      const SizedBox(width: 8),
-                      TextButton.icon(
-                        style: TextButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        onPressed: () => _callPhone(contact.phoneNumber),
-                        icon: const Icon(Icons.phone_in_talk, size: 14, color: Color(0xFF16A34A)),
-                        label: const Text('Gọi nội bộ', style: TextStyle(fontSize: 12, color: Color(0xFF16A34A))),
-                      ),
-                    ],
                   ],
                 ),
               ],
