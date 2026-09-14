@@ -5,8 +5,10 @@ import com.jetbrains.grade.dto.LeaveRequestDTO;
 import com.jetbrains.grade.model.FileEntity;
 import com.jetbrains.grade.model.LeaveRequest;
 import com.jetbrains.grade.model.Student;
+import com.jetbrains.grade.model.Teacher;
 import com.jetbrains.grade.repository.FileRepository;
 import com.jetbrains.grade.repository.StudentRepository;
+import com.jetbrains.grade.repository.TeacherRepository;
 import com.jetbrains.grade.security.SecurityUtils;
 import com.jetbrains.grade.service.LeaveRequestService;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +29,7 @@ public class LeaveRequestController {
 
     private final LeaveRequestService leaveRequestService;
     private final StudentRepository studentRepository;
+    private final TeacherRepository teacherRepository;
     private final FileRepository fileRepository;
 
     @PostMapping
@@ -48,13 +51,20 @@ public class LeaveRequestController {
                         .body(Map.of("error", "Ngay ket thuc khong duoc truoc ngay bat dau"));
             }
 
-            // Always resolve student identity based on authenticated user or explicit admin target
+            // Resolve student or teacher identity based on target/authenticated user
             Integer targetUserId = req.getUserId() != null ? req.getUserId() : SecurityUtils.getCurrentUserId();
-            Student student = studentRepository.findByUserId(targetUserId)
-                    .orElseThrow(() -> new IllegalArgumentException("Student not found for that user ID"));
+            var studentOpt = studentRepository.findByUserId(targetUserId);
+            var teacherOpt = teacherRepository.findByUserId(targetUserId);
 
             LeaveRequest request = new LeaveRequest();
-            request.setStudent(student);
+            if (studentOpt.isPresent()) {
+                request.setStudent(studentOpt.get());
+            } else if (teacherOpt.isPresent()) {
+                request.setTeacher(teacherOpt.get());
+            } else {
+                return ResponseEntity.badRequest()
+                        .body(Map.of("error", "Khong tim thay thong tin hoc sinh hoac giao vien cho tai khoan nay"));
+            }
             request.setRequestType(req.getRequestType());
             request.setFromDate(req.getFromDate());
             request.setToDate(req.getToDate());
@@ -106,6 +116,14 @@ public class LeaveRequestController {
             return ResponseEntity.badRequest().body(Map.of("error", "Thieu status"));
         }
 
+        if ("APPROVED".equalsIgnoreCase(statusValue)) {
+            statusValue = "Đã duyệt";
+        } else if ("REJECTED".equalsIgnoreCase(statusValue)) {
+            statusValue = "Từ chối";
+        } else if ("PENDING".equalsIgnoreCase(statusValue)) {
+            statusValue = "Chờ duyệt";
+        }
+
         LeaveRequest updated = leaveRequestService.updateStatus(id, statusValue, adminNote);
         return ResponseEntity.ok(Map.of(
                 "message", "Cap nhat trang thai thanh cong",
@@ -114,6 +132,16 @@ public class LeaveRequestController {
     }
 
     private LeaveRequestDTO mapToDTO(LeaveRequest l) {
+        String className = (l.getStudent() != null && l.getStudent().getSchoolClass() != null)
+                ? l.getStudent().getSchoolClass().getClassName()
+                : "";
+        String name = l.getStudent() != null ? l.getStudent().getFullName()
+                : (l.getTeacher() != null ? l.getTeacher().getFullName() : "");
+        String code = l.getStudent() != null ? l.getStudent().getStudentCode() : "";
+        String role = l.getTeacher() != null ? "TEACHER" : "STUDENT";
+        Integer teacherId = l.getTeacher() != null ? l.getTeacher().getId() : null;
+        String teacherName = l.getTeacher() != null ? l.getTeacher().getFullName() : null;
+
         return LeaveRequestDTO.builder()
                 .id(l.getId())
                 .requestType(l.getRequestType())
@@ -122,8 +150,12 @@ public class LeaveRequestController {
                 .reason(l.getReason())
                 .status(l.getStatus())
                 .adminNote(l.getAdminNote())
-                .studentName(l.getStudent() != null ? l.getStudent().getFullName() : "")
-                .studentCode(l.getStudent() != null ? l.getStudent().getStudentCode() : "")
+                .studentName(name)
+                .studentCode(code)
+                .className(className)
+                .teacherId(teacherId)
+                .teacherName(teacherName)
+                .role(role)
                 .build();
     }
 }

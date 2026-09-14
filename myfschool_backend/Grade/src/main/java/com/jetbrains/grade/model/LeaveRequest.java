@@ -21,8 +21,12 @@ public class LeaveRequest {
     private Integer id;
 
     @ManyToOne(fetch = FetchType.EAGER)
-    @JoinColumn(name = "StudentID", nullable = false)
+    @JoinColumn(name = "StudentID")
     private Student student;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "TeacherID")
+    private Teacher teacher;
 
     @Column(name = "RequestType", nullable = false, length = 50)
     private String requestType;

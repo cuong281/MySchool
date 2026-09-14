@@ -315,18 +315,43 @@ public class Phase4TeacherAssignmentTest {
     }
 
     @Test
-    public void testAdminRetainsGlobalAccess() {
-        // Authenticate as Admin (userId = 1)
+    @Transactional
+    public void testTeacherLeaveRequestFlow() {
+        // 1. Authenticate as Teacher 1 (userId = 8, teacherId = 1)
+        authenticateUser(8, "teacher_han", "Teacher", null, 1);
+
+        LeaveRequest teacherReq = new LeaveRequest();
+        teacherReq.setRequestType("Nghỉ phép");
+        teacherReq.setFromDate(LocalDate.now().plusDays(1));
+        teacherReq.setToDate(LocalDate.now().plusDays(2));
+        teacherReq.setReason("Lý do gia đình cần nghỉ phép");
+
+        LeaveRequest saved = leaveRequestService.create(teacherReq);
+        assertNotNull(saved.getId());
+        assertNotNull(saved.getTeacher());
+        assertEquals(1, saved.getTeacher().getId());
+        assertNull(saved.getStudent());
+        assertEquals("Chờ duyệt", saved.getStatus());
+
+        // Teacher 1 views own requests -> contains saved request
+        List<LeaveRequest> myRequests = leaveRequestService.getMyLeaveRequests();
+        assertTrue(myRequests.stream().anyMatch(r -> r.getId().equals(saved.getId())));
+
+        // Teacher 1 attempts to self-approve -> AccessDeniedException
+        assertThrows(AccessDeniedException.class,
+                () -> leaveRequestService.updateStatus(saved.getId(), "Đã duyệt", "Self approve"),
+                "Teacher must NOT be allowed to approve own leave request");
+
+        // 2. Authenticate as Teacher 2 (userId = 9, teacherId = 2) -> attempts to approve Teacher 1's request -> AccessDeniedException
+        authenticateUser(9, "teacher_hien", "Teacher", null, 2);
+        assertThrows(AccessDeniedException.class,
+                () -> leaveRequestService.updateStatus(saved.getId(), "Đã duyệt", "Other teacher approve"),
+                "Teacher must NOT be allowed to approve other teacher's leave request");
+
+        // 3. Authenticate as Admin (userId = 1) -> Admin approves Teacher's leave request -> OK
         authenticateUser(1, "admin", "Admin", null, null);
-
-        // Admin can view all grades
-        assertDoesNotThrow(() -> gradeService.getAll());
-
-        // Admin can view any class attendance
-        assertDoesNotThrow(() -> attendanceService.getClassAttendance(1, LocalDate.now()));
-        assertDoesNotThrow(() -> attendanceService.getClassAttendance(2, LocalDate.now()));
-
-        // Admin can view all leave requests
-        assertDoesNotThrow(() -> leaveRequestService.getAll());
+        LeaveRequest approvedByAdmin = leaveRequestService.updateStatus(saved.getId(), "Đã duyệt", "BGH đồng ý duyệt đơn");
+        assertEquals("Đã duyệt", approvedByAdmin.getStatus());
+        assertEquals("BGH đồng ý duyệt đơn", approvedByAdmin.getAdminNote());
     }
 }

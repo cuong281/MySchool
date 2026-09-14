@@ -22,4 +22,18 @@ public interface NotificationRepository extends JpaRepository<Notification, Inte
     @Modifying
     @Query("UPDATE Notification n SET n.isRead = true, n.readAt = CURRENT_TIMESTAMP WHERE n.user.id = :userId AND n.isRead = false")
     int markAllAsReadByUserId(@Param("userId") Integer userId);
+
+    @Query("""
+        SELECT COUNT(n) > 0 FROM Notification n
+        WHERE n.user.id = :userId
+          AND n.type = :type
+          AND n.referenceId = :referenceId
+          AND n.createdAt >= :after
+    """)
+    boolean existsReminderSentToday(
+            @Param("userId") Integer userId,
+            @Param("type") String type,
+            @Param("referenceId") Integer referenceId,
+            @Param("after") java.time.LocalDateTime after
+    );
 }

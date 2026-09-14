@@ -19,6 +19,7 @@ import java.util.List;
 public class AttendanceController {
 
     private final AttendanceService attendanceService;
+    private final com.jetbrains.grade.service.AttendanceReminderService attendanceReminderService;
 
     @GetMapping("/me")
     public ResponseEntity<List<AttendanceRecordDTO>> getMyAttendance() {
@@ -83,5 +84,21 @@ public class AttendanceController {
         } catch (IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(java.util.Map.of("error", e.getMessage()));
         }
+    }
+
+    @GetMapping("/alerts/unrecorded-today")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<List<UnrecordedAttendanceSessionDTO>> getUnrecordedAttendanceSessionsToday() {
+        return ResponseEntity.ok(attendanceReminderService.getUnrecordedSessionsToday());
+    }
+
+    @PostMapping("/alerts/scan-and-remind")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<java.util.Map<String, Object>> scanAndRemindUnrecordedAttendance() {
+        int count = attendanceReminderService.checkAndRemindUnrecordedAttendance();
+        return ResponseEntity.ok(java.util.Map.of(
+                "message", "Quét và gửi nhắc nhở thành công",
+                "remindedCount", count
+        ));
     }
 }

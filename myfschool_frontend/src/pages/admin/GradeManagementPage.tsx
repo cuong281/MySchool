@@ -24,6 +24,7 @@ import {
   Statistic,
   Progress,
   Divider,
+  Radio,
 } from 'antd';
 import {
   SearchOutlined,
@@ -45,18 +46,25 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
 import { classApi } from '../../api/classApi';
 import { gradeApi } from '../../api/gradeApi';
-import type { GradeDTO } from '../../types/grade';
+import { subjectApi } from '../../api/subjectApi';
+import type { GradeDTO, GradeBatchImportRequest } from '../../types/grade';
 
 const { Title, Text } = Typography;
 
 interface ParsedExcelRow {
   rowIndex: number;
   studentId: number;
+  studentCode?: string;
   studentName: string;
+  subjectCode: string;
+  subjectName?: string;
+  semester: number;
   attendanceScore: number | null;
   midtermScore: number | null;
   finalScore: number | null;
+  score: number | null; // For exam mode
   predictedAverage: number | null;
+  isUpdate: boolean;    // true if Grade already exists, false if new
   isValid: boolean;
   errors: string[];
 }
@@ -85,6 +93,8 @@ export const GradeManagementPage: React.FC = () => {
   const [drawerSemesterFilter, setDrawerSemesterFilter] = useState<'ALL' | 1 | 2>('ALL');
 
   // Excel Import Tab State
+  const [importMode, setImportMode] = useState<'ALL' | 'EXAM'>('EXAM');
+  const [examType, setExamType] = useState<'MIDTERM' | 'FINAL'>('MIDTERM');
   const [importClassId, setImportClassId] = useState<number | undefined>(undefined);
   const [importSubject, setImportSubject] = useState<string>('MATH');
   const [importSemester, setImportSemester] = useState<number>(1);
@@ -100,6 +110,19 @@ export const GradeManagementPage: React.FC = () => {
   } = useQuery({
     queryKey: ['schoolClasses'],
     queryFn: () => classApi.getAllClasses(),
+  });
+
+  // Fetch all subjects from backend
+  const { data: allSubjects = [] } = useQuery({
+    queryKey: ['allSubjects'],
+    queryFn: () => subjectApi.getAll(),
+  });
+
+  // Fetch all students in the selected import class
+  const { data: classStudents = [] } = useQuery({
+    queryKey: ['classStudents', importClassId],
+    queryFn: () => classApi.getStudents(importClassId!),
+    enabled: importClassId !== undefined && importClassId > 0,
   });
 
   // Auto select first class when classes are loaded
@@ -161,11 +184,12 @@ export const GradeManagementPage: React.FC = () => {
 
   // Unique student list in class (sorted by studentId)
   const studentsInClass = useMemo(() => {
-    const map = new Map<number, { studentId: number; studentName: string; className: string }>();
+    const map = new Map<number, { studentId: number; studentCode?: string; studentName: string; className: string }>();
     grades.forEach((g) => {
       if (g.studentId && !map.has(g.studentId)) {
         map.set(g.studentId, {
           studentId: g.studentId,
+          studentCode: (g as any).studentCode,
           studentName: g.studentName,
           className: g.className,
         });
@@ -173,6 +197,32 @@ export const GradeManagementPage: React.FC = () => {
     });
     return Array.from(map.values()).sort((a, b) => a.studentId - b.studentId);
   }, [grades]);
+
+  // Available subjects (using backend active subjects or fallback to subjects from grades)
+  const availableSubjects = useMemo(() => {
+    if (allSubjects && allSubjects.length > 0) {
+      return allSubjects.map((s) => ({ code: s.subjectCode, name: s.subjectName }));
+    }
+    return subjects;
+  }, [allSubjects, subjects]);
+
+  // Effective students of the import class (using real class students roster or fallback to grades)
+  const effectiveStudents = useMemo(() => {
+    if (classStudents && classStudents.length > 0) {
+      return classStudents.map((s) => ({
+        studentId: s.id,
+        studentCode: s.studentCode,
+        studentName: s.fullName,
+        className: s.className || '',
+      }));
+    }
+    return studentsInClass.map((s) => ({
+      studentId: s.studentId,
+      studentCode: s.studentCode,
+      studentName: s.studentName,
+      className: s.className,
+    }));
+  }, [classStudents, studentsInClass]);
 
   // ==========================================
   // TAB 1: TỔNG QUAN HỌC SINH (1 HS = 1 DÒNG)
@@ -347,75 +397,125 @@ export const GradeManagementPage: React.FC = () => {
   // TAB 3: EXCEL IMPORT LOGIC
   // ==========================================
 
-  // Tải file mẫu Excel
+  // ==========================================
+  // TAB 3: EXCEL IMPORT LOGIC (2 CHẾ ĐỘ: NHẬP TOÀN BỘ & NHẬP ĐIỂM THI)
+  // ==========================================
+
+  // Tải file mẫu Excel theo chế độ được chọn
   const handleDownloadTemplate = () => {
     const currentClass = classes.find((c) => c.id === importClassId);
     const className = currentClass ? currentClass.className : 'Class';
-    const subjName = subjects.find((s) => s.code === importSubject)?.name || importSubject;
+    const subjObj = availableSubjects.find((s) => s.code === importSubject);
+    const subjName = subjObj?.name || importSubject;
 
-    // Pre-populate with students in this class
-    const templateData = studentsInClass.map((s, idx) => ({
-      STT: idx + 1,
-      StudentID: s.studentId,
-      StudentName: s.studentName,
-      'Chuyên cần': '',
-      'Giữa kỳ': '',
-      'Cuối kỳ': '',
-    }));
+    if (importMode === 'EXAM') {
+      // Chế độ B: Nhập điểm thi (StudentID | StudentName | Score)
+      const templateData = effectiveStudents.map((s, idx) => ({
+        STT: idx + 1,
+        StudentID: s.studentId,
+        StudentName: s.studentName,
+        Score: '',
+      }));
 
-    const ws = XLSX.utils.json_to_sheet(templateData);
-    // Set column widths
-    ws['!cols'] = [
-      { wch: 6 }, // STT
-      { wch: 12 }, // StudentID
-      { wch: 25 }, // StudentName
-      { wch: 14 }, // Chuyên cần
-      { wch: 14 }, // Giữa kỳ
-      { wch: 14 }, // Cuối kỳ
-    ];
+      const ws = XLSX.utils.json_to_sheet(templateData);
+      ws['!cols'] = [
+        { wch: 6 },  // STT
+        { wch: 12 }, // StudentID
+        { wch: 25 }, // StudentName
+        { wch: 12 }, // Score
+      ];
 
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'BangDiem');
-    const fileName = `Mau_Nhap_Diem_${className}_${subjName}_HK${importSemester}.xlsx`;
-    XLSX.writeFile(wb, fileName);
-    message.success(`Đã tải xuống file mẫu: ${fileName}`);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'DiemThi');
+      const examName = examType === 'MIDTERM' ? 'Giua_Ky' : 'Cuoi_Ky';
+      const fileName = `Mau_Diem_Thi_${examName}_Lop_${className}_${subjName}_HK${importSemester}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      message.success(`Đã tải xuống file mẫu điểm thi: ${fileName}`);
+    } else {
+      // Chế độ A: Nhập toàn bộ bảng điểm (StudentID | StudentName | Subject | Semester | Attendance | Midterm | Final)
+      const templateData = effectiveStudents.map((s, idx) => ({
+        STT: idx + 1,
+        StudentID: s.studentId,
+        StudentName: s.studentName,
+        Subject: importSubject,
+        Semester: importSemester,
+        Attendance: '',
+        Midterm: '',
+        Final: '',
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(templateData);
+      ws['!cols'] = [
+        { wch: 6 },  // STT
+        { wch: 12 }, // StudentID
+        { wch: 25 }, // StudentName
+        { wch: 12 }, // Subject
+        { wch: 10 }, // Semester
+        { wch: 14 }, // Attendance
+        { wch: 14 }, // Midterm
+        { wch: 14 }, // Final
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'BangDiem');
+      const fileName = `Mau_Toan_Bo_Diem_Lop_${className}_${subjName}_HK${importSemester}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      message.success(`Đã tải xuống file mẫu toàn bộ điểm: ${fileName}`);
+    }
   };
 
-  // Tải file mẫu có sẵn dữ liệu điểm hợp lệ (25 HS lớp 10A1)
+  // Tải file mẫu có sẵn dữ liệu hợp lệ để kiểm thử nhanh
   const handleDownloadFilledSample = () => {
-    const students = [
-      { STT: 1, StudentID: 1, StudentName: 'Nguyen Van A', 'Chuyên cần': 9.0, 'Giữa kỳ': 9.0, 'Cuối kỳ': 10.0 },
-      { STT: 2, StudentID: 2, StudentName: 'Tran Thi B', 'Chuyên cần': 8.5, 'Giữa kỳ': 8.0, 'Cuối kỳ': 9.0 },
-      { STT: 3, StudentID: 3, StudentName: 'Le Van C', 'Chuyên cần': 9.5, 'Giữa kỳ': 8.5, 'Cuối kỳ': 9.0 },
-      { STT: 4, StudentID: 7, StudentName: 'Nguyen Thuy Duong', 'Chuyên cần': 10.0, 'Giữa kỳ': 9.5, 'Cuối kỳ': 9.5 },
-      { STT: 5, StudentID: 8, StudentName: 'Tran Bich Huong', 'Chuyên cần': 8.0, 'Giữa kỳ': 8.5, 'Cuối kỳ': 8.5 },
-      { STT: 6, StudentID: 9, StudentName: 'Le Quoc Dung', 'Chuyên cần': 7.5, 'Giữa kỳ': 8.0, 'Cuối kỳ': 8.0 },
-      { STT: 7, StudentID: 10, StudentName: 'Pham Quynh Anh', 'Chuyên cần': 9.0, 'Giữa kỳ': 9.0, 'Cuối kỳ': 9.5 },
-      { STT: 8, StudentID: 11, StudentName: 'Hoang Phuoc Nam', 'Chuyên cần': 8.5, 'Giữa kỳ': 7.5, 'Cuối kỳ': 8.5 },
-      { STT: 9, StudentID: 12, StudentName: 'Phan Mai Phuong', 'Chuyên cần': 9.0, 'Giữa kỳ': 9.0, 'Cuối kỳ': 9.0 },
-      { STT: 10, StudentID: 13, StudentName: 'Vu Duc Minh', 'Chuyên cần': 8.0, 'Giữa kỳ': 8.0, 'Cuối kỳ': 8.5 },
-      { STT: 11, StudentID: 14, StudentName: 'Vo Hoang Bach', 'Chuyên cần': 9.0, 'Giữa kỳ': 8.5, 'Cuối kỳ': 9.0 },
-      { STT: 12, StudentID: 15, StudentName: 'Dang Phuong Thao', 'Chuyên cần': 9.5, 'Giữa kỳ': 9.0, 'Cuối kỳ': 9.5 },
-      { STT: 13, StudentID: 16, StudentName: 'Bui Minh Huy', 'Chuyên cần': 8.0, 'Giữa kỳ': 7.5, 'Cuối kỳ': 8.0 },
-      { STT: 14, StudentID: 17, StudentName: 'Do Tra My', 'Chuyên cần': 9.0, 'Giữa kỳ': 9.5, 'Cuối kỳ': 9.0 },
-      { STT: 15, StudentID: 18, StudentName: 'Ho Cong Tri', 'Chuyên cần': 8.5, 'Giữa kỳ': 8.0, 'Cuối kỳ': 8.5 },
-      { STT: 16, StudentID: 19, StudentName: 'Ngo Dang Khoa', 'Chuyên cần': 8.0, 'Giữa kỳ': 8.5, 'Cuối kỳ': 8.0 },
-      { STT: 17, StudentID: 20, StudentName: 'Duong Huu Tuong', 'Chuyên cần': 9.0, 'Giữa kỳ': 8.0, 'Cuối kỳ': 8.5 },
-      { STT: 18, StudentID: 21, StudentName: 'Ly My Hanh', 'Chuyên cần': 9.5, 'Giữa kỳ': 9.0, 'Cuối kỳ': 9.0 },
-      { STT: 19, StudentID: 22, StudentName: 'Nguyen Kim Ngan', 'Chuyên cần': 10.0, 'Giữa kỳ': 9.5, 'Cuối kỳ': 10.0 },
-      { STT: 20, StudentID: 23, StudentName: 'Tran Bao Long', 'Chuyên cần': 8.0, 'Giữa kỳ': 8.5, 'Cuối kỳ': 8.0 },
-      { STT: 21, StudentID: 24, StudentName: 'Le Thu Ha', 'Chuyên cần': 9.0, 'Giữa kỳ': 8.5, 'Cuối kỳ': 9.0 },
-      { STT: 22, StudentID: 25, StudentName: 'Pham Tuan Anh', 'Chuyên cần': 8.5, 'Giữa kỳ': 8.0, 'Cuối kỳ': 8.5 },
-      { STT: 23, StudentID: 26, StudentName: 'Hoang Thanh Hang', 'Chuyên cần': 9.0, 'Giữa kỳ': 9.0, 'Cuối kỳ': 9.5 },
-      { STT: 24, StudentID: 27, StudentName: 'Phan Bao Tram', 'Chuyên cần': 9.5, 'Giữa kỳ': 9.5, 'Cuối kỳ': 9.0 },
-      { STT: 25, StudentID: 28, StudentName: 'Vu Van Hai', 'Chuyên cần': 8.0, 'Giữa kỳ': 7.5, 'Cuối kỳ': 8.0 }
-    ];
-    const ws = XLSX.utils.json_to_sheet(students);
-    ws['!cols'] = [{ wch: 6 }, { wch: 12 }, { wch: 25 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'BangDiem');
-    XLSX.writeFile(wb, 'Bang_Diem_Lop_10A1_Hop_Le.xlsx');
-    message.success('Đã tải xuống file mẫu có sẵn điểm hợp lệ: Bang_Diem_Lop_10A1_Hop_Le.xlsx');
+    const currentClass = classes.find((c) => c.id === importClassId);
+    const className = currentClass ? currentClass.className : 'Class';
+
+    if (importMode === 'EXAM') {
+      const sampleScores = [9.0, 8.5, 9.5, 8.0, 7.5, 8.5, 9.0, 9.5, 8.0, 7.0, 8.5, 9.0, 8.0, 8.5, 9.0];
+      const students = effectiveStudents.slice(0, 25).map((s, idx) => ({
+        STT: idx + 1,
+        StudentID: s.studentId,
+        StudentName: s.studentName,
+        Score: sampleScores[idx % sampleScores.length],
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(students);
+      ws['!cols'] = [{ wch: 6 }, { wch: 12 }, { wch: 25 }, { wch: 12 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'DiemThi');
+      const examName = examType === 'MIDTERM' ? 'Giua_Ky' : 'Cuoi_Ky';
+      const fileName = `Mau_Co_Diem_Thi_${examName}_Lop_${className}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      message.success(`Đã tải xuống file mẫu có sẵn điểm thi: ${fileName}`);
+    } else {
+      const sampleGrades = [
+        { att: 9.0, mid: 8.5, fin: 9.0 },
+        { att: 8.5, mid: 8.0, fin: 8.5 },
+        { att: 9.5, mid: 9.0, fin: 9.5 },
+        { att: 8.0, mid: 7.5, fin: 8.0 },
+        { att: 9.0, mid: 8.5, fin: 9.0 },
+      ];
+      const students = effectiveStudents.slice(0, 25).map((s, idx) => {
+        const g = sampleGrades[idx % sampleGrades.length];
+        return {
+          STT: idx + 1,
+          StudentID: s.studentId,
+          StudentName: s.studentName,
+          Subject: importSubject,
+          Semester: importSemester,
+          Attendance: g.att,
+          Midterm: g.mid,
+          Final: g.fin,
+        };
+      });
+
+      const ws = XLSX.utils.json_to_sheet(students);
+      ws['!cols'] = [{ wch: 6 }, { wch: 12 }, { wch: 25 }, { wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'BangDiem');
+      const fileName = `Mau_Co_San_Diem_Toan_Bo_Lop_${className}.xlsx`;
+      XLSX.writeFile(wb, fileName);
+      message.success(`Đã tải xuống file mẫu có sẵn toàn bộ điểm: ${fileName}`);
+    }
   };
 
   // Upload & Parse File Excel
@@ -437,109 +537,211 @@ export const GradeManagementPage: React.FC = () => {
         // Header Row (Row 0)
         const headerRow: string[] = (rawJson[0] || []).map((h: any) => String(h || '').trim().toLowerCase());
 
-        // Find column indices
         const findColIndex = (keywords: string[]) => {
           return headerRow.findIndex((col) => keywords.some((kw) => col.includes(kw)));
         };
 
         const studentIdIdx = findColIndex(['studentid', 'student id', 'mã hs', 'ma hs', 'mã học sinh', 'ma hoc sinh', 'id']);
         const studentNameIdx = findColIndex(['studentname', 'student name', 'tên học sinh', 'ten hoc sinh', 'họ và tên', 'ho va ten', 'tên']);
-        const attendanceIdx = findColIndex(['chuyên cần', 'chuyen can', 'chuyencan', 'cc', 'attendance']);
-        const midtermIdx = findColIndex(['giữa kỳ', 'giua ky', 'giuaky', 'gk', 'midterm']);
-        const finalIdx = findColIndex(['cuối kỳ', 'cuoi ky', 'cuoiky', 'ck', 'final']);
 
         if (studentIdIdx === -1) {
           message.error('Không tìm thấy cột StudentID hoặc Mã học sinh trong file Excel');
           return;
         }
 
-        const validStudentIdSet = new Set(studentsInClass.map((s) => s.studentId));
-        const seenStudentIds = new Set<number>();
+        const validStudentIdMap = new Map(effectiveStudents.map((s) => [s.studentId, s]));
+        const validStudentCodeMap = new Map(
+          effectiveStudents.filter((s) => s.studentCode).map((s) => [s.studentCode!.trim().toUpperCase(), s])
+        );
+
+        const seenKeys = new Set<string>();
         const parsed: ParsedExcelRow[] = [];
 
-        // Parse rows starting from row 1
-        for (let i = 1; i < rawJson.length; i++) {
-          const row = rawJson[i];
-          if (!row || row.length === 0 || row.every((c: any) => c === null || c === undefined || c === '')) {
-            continue; // Skip empty row
+        if (importMode === 'EXAM') {
+          // CHẾ ĐỘ B: NHẬP ĐIỂM THI
+          let scoreIdx = findColIndex(['score', 'điểm thi', 'diem thi', 'điểm', 'diem']);
+          if (scoreIdx === -1) {
+            scoreIdx = examType === 'MIDTERM'
+              ? findColIndex(['giữa kỳ', 'giua ky', 'gk', 'midterm'])
+              : findColIndex(['cuối kỳ', 'cuoi ky', 'ck', 'final']);
           }
 
-          const rawId = row[studentIdIdx];
-          const rawName = studentNameIdx !== -1 ? String(row[studentNameIdx] || '').trim() : '';
-          const rawAttendance = attendanceIdx !== -1 ? row[attendanceIdx] : null;
-          const rawMidterm = midtermIdx !== -1 ? row[midtermIdx] : null;
-          const rawFinal = finalIdx !== -1 ? row[finalIdx] : null;
-
-          const errors: string[] = [];
-          const studentIdNum = Number(rawId);
-
-          if (isNaN(studentIdNum) || studentIdNum <= 0) {
-            errors.push(`Mã học sinh '${rawId}' không hợp lệ`);
-          } else {
-            if (!validStudentIdSet.has(studentIdNum)) {
-              errors.push(`Mã HS ${studentIdNum} không thuộc danh sách lớp đã chọn`);
-            }
-            if (seenStudentIds.has(studentIdNum)) {
-              errors.push(`Mã HS ${studentIdNum} bị trùng lặp trong file`);
-            }
-            seenStudentIds.add(studentIdNum);
+          if (scoreIdx === -1) {
+            message.error('Không tìm thấy cột Điểm thi (Score / Điểm / Giữa kỳ / Cuối kỳ) trong file Excel');
+            return;
           }
 
-          // Validate Attendance Score
-          let attendanceScore: number | null = null;
-          if (rawAttendance !== null && rawAttendance !== undefined && rawAttendance !== '') {
-            const n = Number(rawAttendance);
-            if (isNaN(n) || n < 0 || n > 10) {
-              errors.push(`Điểm chuyên cần (${rawAttendance}) phải từ 0 đến 10`);
+          for (let i = 1; i < rawJson.length; i++) {
+            const row = rawJson[i];
+            if (!row || row.length === 0 || row.every((c: any) => c === null || c === undefined || c === '')) {
+              continue;
+            }
+
+            const rawId = row[studentIdIdx];
+            const rawName = studentNameIdx !== -1 ? String(row[studentNameIdx] || '').trim() : '';
+            const rawScore = row[scoreIdx];
+
+            const errors: string[] = [];
+            const studentIdNum = Number(rawId);
+            let matchedStudent = !isNaN(studentIdNum) ? validStudentIdMap.get(studentIdNum) : undefined;
+            if (!matchedStudent && typeof rawId === 'string') {
+              matchedStudent = validStudentCodeMap.get(rawId.trim().toUpperCase());
+            }
+
+            if (isNaN(studentIdNum) && !matchedStudent) {
+              errors.push(`Mã học sinh '${rawId}' không hợp lệ`);
+            } else if (!matchedStudent) {
+              errors.push(`Học sinh (Mã: ${rawId}) không thuộc lớp được chọn`);
             } else {
-              attendanceScore = Math.round(n * 10) / 10;
+              const dupKey = `${matchedStudent.studentId}_${importSubject}_${importSemester}`;
+              if (seenKeys.has(dupKey)) {
+                errors.push(`Học sinh ${matchedStudent.studentName} (#${matchedStudent.studentId}) bị trùng lặp trong file`);
+              }
+              seenKeys.add(dupKey);
             }
-          }
 
-          // Validate Midterm Score
-          let midtermScore: number | null = null;
-          if (rawMidterm !== null && rawMidterm !== undefined && rawMidterm !== '') {
-            const n = Number(rawMidterm);
-            if (isNaN(n) || n < 0 || n > 10) {
-              errors.push(`Điểm giữa kỳ (${rawMidterm}) phải từ 0 đến 10`);
+            let scoreVal: number | null = null;
+            if (rawScore === null || rawScore === undefined || String(rawScore).trim() === '') {
+              errors.push('Chưa nhập điểm thi');
             } else {
-              midtermScore = Math.round(n * 10) / 10;
+              const n = Number(rawScore);
+              if (isNaN(n) || n < 0 || n > 10) {
+                errors.push(`Điểm thi (${rawScore}) phải nằm trong khoảng từ 0 đến 10`);
+              } else {
+                scoreVal = Math.round(n * 10) / 10;
+              }
             }
-          }
 
-          // Validate Final Score
-          let finalScore: number | null = null;
-          if (rawFinal !== null && rawFinal !== undefined && rawFinal !== '') {
-            const n = Number(rawFinal);
-            if (isNaN(n) || n < 0 || n > 10) {
-              errors.push(`Điểm cuối kỳ (${rawFinal}) phải từ 0 đến 10`);
+            const studentId = matchedStudent?.studentId || (isNaN(studentIdNum) ? 0 : studentIdNum);
+            const studentName = rawName || matchedStudent?.studentName || `Học sinh #${studentId}`;
+
+            // Check if grade already exists in current grades
+            const existingGrade = grades.find(
+              (g) => g.studentId === studentId && (g.subjectCode === importSubject || g.subjectName === importSubject) && g.semester === importSemester
+            );
+            const isUpdate = !!existingGrade;
+
+            parsed.push({
+              rowIndex: i + 1,
+              studentId,
+              studentCode: matchedStudent?.studentCode,
+              studentName,
+              subjectCode: importSubject,
+              subjectName: availableSubjects.find((s) => s.code === importSubject)?.name || importSubject,
+              semester: importSemester,
+              attendanceScore: existingGrade ? existingGrade.attendanceScore : null,
+              midtermScore: examType === 'MIDTERM' ? scoreVal : (existingGrade ? existingGrade.midtermScore : null),
+              finalScore: examType === 'FINAL' ? scoreVal : (existingGrade ? existingGrade.finalScore : null),
+              score: scoreVal,
+              predictedAverage: null,
+              isUpdate,
+              isValid: errors.length === 0,
+              errors,
+            });
+          }
+        } else {
+          // CHẾ ĐỘ A: NHẬP TOÀN BỘ BẢNG ĐIỂM
+          const attendanceIdx = findColIndex(['chuyên cần', 'chuyen can', 'chuyencan', 'cc', 'attendance']);
+          const midtermIdx = findColIndex(['giữa kỳ', 'giua ky', 'giuaky', 'gk', 'midterm']);
+          const finalIdx = findColIndex(['cuối kỳ', 'cuoi ky', 'cuoiky', 'ck', 'final']);
+          const subjectIdx = findColIndex(['môn', 'mon', 'subject']);
+          const semesterIdx = findColIndex(['học kỳ', 'hoc ky', 'semester', 'hk']);
+
+          for (let i = 1; i < rawJson.length; i++) {
+            const row = rawJson[i];
+            if (!row || row.length === 0 || row.every((c: any) => c === null || c === undefined || c === '')) {
+              continue;
+            }
+
+            const rawId = row[studentIdIdx];
+            const rawName = studentNameIdx !== -1 ? String(row[studentNameIdx] || '').trim() : '';
+            const rawAttendance = attendanceIdx !== -1 ? row[attendanceIdx] : null;
+            const rawMidterm = midtermIdx !== -1 ? row[midtermIdx] : null;
+            const rawFinal = finalIdx !== -1 ? row[finalIdx] : null;
+            const rawSubject = subjectIdx !== -1 ? String(row[subjectIdx] || '').trim() : importSubject;
+            const rawSemester = semesterIdx !== -1 ? Number(row[semesterIdx]) : importSemester;
+
+            const errors: string[] = [];
+            const studentIdNum = Number(rawId);
+            let matchedStudent = !isNaN(studentIdNum) ? validStudentIdMap.get(studentIdNum) : undefined;
+            if (!matchedStudent && typeof rawId === 'string') {
+              matchedStudent = validStudentCodeMap.get(rawId.trim().toUpperCase());
+            }
+
+            if (isNaN(studentIdNum) && !matchedStudent) {
+              errors.push(`Mã học sinh '${rawId}' không hợp lệ`);
+            } else if (!matchedStudent) {
+              errors.push(`Học sinh (Mã: ${rawId}) không thuộc lớp được chọn`);
             } else {
-              finalScore = Math.round(n * 10) / 10;
+              const dupKey = `${matchedStudent.studentId}_${rawSubject}_${rawSemester}`;
+              if (seenKeys.has(dupKey)) {
+                errors.push(`Học sinh ${matchedStudent.studentName} (#${matchedStudent.studentId}) bị trùng lặp môn/học kỳ trong file`);
+              }
+              seenKeys.add(dupKey);
             }
+
+            let attendanceScore: number | null = null;
+            if (rawAttendance !== null && rawAttendance !== undefined && String(rawAttendance).trim() !== '') {
+              const n = Number(rawAttendance);
+              if (isNaN(n) || n < 0 || n > 10) {
+                errors.push(`Điểm chuyên cần (${rawAttendance}) phải từ 0 đến 10`);
+              } else {
+                attendanceScore = Math.round(n * 10) / 10;
+              }
+            }
+
+            let midtermScore: number | null = null;
+            if (rawMidterm !== null && rawMidterm !== undefined && String(rawMidterm).trim() !== '') {
+              const n = Number(rawMidterm);
+              if (isNaN(n) || n < 0 || n > 10) {
+                errors.push(`Điểm giữa kỳ (${rawMidterm}) phải từ 0 đến 10`);
+              } else {
+                midtermScore = Math.round(n * 10) / 10;
+              }
+            }
+
+            let finalScore: number | null = null;
+            if (rawFinal !== null && rawFinal !== undefined && String(rawFinal).trim() !== '') {
+              const n = Number(rawFinal);
+              if (isNaN(n) || n < 0 || n > 10) {
+                errors.push(`Điểm cuối kỳ (${rawFinal}) phải từ 0 đến 10`);
+              } else {
+                finalScore = Math.round(n * 10) / 10;
+              }
+            }
+
+            let predictedAverage: number | null = null;
+            if (attendanceScore !== null && midtermScore !== null && finalScore !== null) {
+              predictedAverage =
+                Math.round(((attendanceScore + midtermScore * 2.0 + finalScore * 3.0) / 6.0) * 10.0) / 10.0;
+            }
+
+            const studentId = matchedStudent?.studentId || (isNaN(studentIdNum) ? 0 : studentIdNum);
+            const studentName = rawName || matchedStudent?.studentName || `Học sinh #${studentId}`;
+
+            const existingGrade = grades.find(
+              (g) => g.studentId === studentId && (g.subjectCode === rawSubject || g.subjectName === rawSubject) && g.semester === rawSemester
+            );
+            const isUpdate = !!existingGrade;
+
+            parsed.push({
+              rowIndex: i + 1,
+              studentId,
+              studentCode: matchedStudent?.studentCode,
+              studentName,
+              subjectCode: rawSubject,
+              subjectName: availableSubjects.find((s) => s.code === rawSubject)?.name || rawSubject,
+              semester: isNaN(rawSemester) ? importSemester : rawSemester,
+              attendanceScore,
+              midtermScore,
+              finalScore,
+              score: null,
+              predictedAverage,
+              isUpdate,
+              isValid: errors.length === 0,
+              errors,
+            });
           }
-
-          // Compute predicted average matching Backend formula: (attendance + 2*midterm + 3*final) / 6
-          let predictedAverage: number | null = null;
-          if (attendanceScore !== null && midtermScore !== null && finalScore !== null) {
-            predictedAverage =
-              Math.round(((attendanceScore + midtermScore * 2.0 + finalScore * 3.0) / 6.0) * 10.0) / 10.0;
-          }
-
-          // Match student name from roster if not in file
-          const matchedStudent = studentsInClass.find((s) => s.studentId === studentIdNum);
-          const finalStudentName = rawName || matchedStudent?.studentName || `Học sinh #${studentIdNum}`;
-
-          parsed.push({
-            rowIndex: i + 1,
-            studentId: studentIdNum,
-            studentName: finalStudentName,
-            attendanceScore,
-            midtermScore,
-            finalScore,
-            predictedAverage,
-            isValid: errors.length === 0,
-            errors,
-          });
         }
 
         setUploadedFileName(file.name);
@@ -556,7 +758,7 @@ export const GradeManagementPage: React.FC = () => {
       }
     };
     reader.readAsArrayBuffer(file);
-    return false; // Prevent default upload
+    return false;
   };
 
   // Tải danh sách dòng lỗi ra file Excel
@@ -571,6 +773,9 @@ export const GradeManagementPage: React.FC = () => {
       'Dòng Excel': r.rowIndex,
       StudentID: r.studentId,
       StudentName: r.studentName,
+      'Môn học': r.subjectCode,
+      'Học kỳ': r.semester,
+      'Điểm thi': r.score ?? '',
       'Chuyên cần': r.attendanceScore ?? '',
       'Giữa kỳ': r.midtermScore ?? '',
       'Cuối kỳ': r.finalScore ?? '',
@@ -584,83 +789,139 @@ export const GradeManagementPage: React.FC = () => {
     message.success('Đã tải xuống danh sách dòng lỗi.');
   };
 
-  // Thực hiện Import điểm vào Backend
-  const handleExecuteImport = async () => {
+  // Thực hiện Batch Import điểm vào Backend
+  const handleExecuteImport = () => {
     const validRows = parsedRows.filter((r) => r.isValid);
     if (validRows.length === 0) {
       message.error('Không có dòng dữ liệu hợp lệ nào để nhập.');
       return;
     }
 
-    setIsImporting(true);
-    setImportProgress({ current: 0, total: validRows.length });
+    const newCount = validRows.filter((r) => !r.isUpdate).length;
+    const updateCount = validRows.filter((r) => r.isUpdate).length;
+    const currentClass = classes.find((c) => c.id === importClassId);
+    const className = currentClass ? currentClass.className : `Lớp ${importClassId}`;
 
-    let successCount = 0;
-    let failCount = 0;
-    const failedStudentIds: number[] = [];
+    Modal.confirm({
+      title: 'Xác nhận nhập điểm vào hệ thống',
+      icon: <UploadOutlined style={{ color: '#2563EB' }} />,
+      content: (
+        <div style={{ marginTop: 8 }}>
+          <p>
+            Bạn sắp import <strong>{validRows.length}</strong> bản ghi điểm cho <strong>{className}</strong>.
+          </p>
+          <p style={{ margin: '4px 0' }}>
+            • Bản ghi mới: <strong style={{ color: '#16A34A' }}>{newCount}</strong>
+          </p>
+          <p style={{ margin: '4px 0' }}>
+            • Bản ghi cập nhật: <strong style={{ color: '#2563EB' }}>{updateCount}</strong>
+          </p>
+          <p style={{ color: '#64748B', fontSize: 13, marginTop: 8 }}>
+            Hệ thống sẽ chạy trong giao dịch an toàn (All-or-Nothing). Các điểm thành phần khác không thuộc đợt import sẽ được giữ nguyên vẹn.
+          </p>
+        </div>
+      ),
+      okText: 'Xác nhận Import',
+      cancelText: 'Hủy bỏ',
+      onOk: async () => {
+        setIsImporting(true);
+        setImportProgress({ current: 0, total: validRows.length });
 
-    for (let idx = 0; idx < validRows.length; idx++) {
-      const row = validRows[idx];
-      setImportProgress({ current: idx + 1, total: validRows.length });
+        try {
+          const importType =
+            importMode === 'EXAM'
+              ? examType === 'MIDTERM'
+                ? 'IMPORT_MIDTERM'
+                : 'IMPORT_FINAL'
+              : 'IMPORT_ALL';
 
-      // Find existing GradeDTO for this student + subject + semester
-      const existingGrade = grades.find(
-        (g) => g.studentId === row.studentId && g.subjectCode === importSubject && g.semester === importSemester
-      );
+          const payload: GradeBatchImportRequest = {
+            importType,
+            classId: importClassId!,
+            subjectCode: importMode === 'EXAM' ? importSubject : undefined,
+            semester: importMode === 'EXAM' ? importSemester : undefined,
+            items: validRows.map((r) => ({
+              rowNumber: r.rowIndex,
+              studentId: r.studentId,
+              studentCode: r.studentCode,
+              studentName: r.studentName,
+              subjectCode: r.subjectCode,
+              semester: r.semester,
+              attendanceScore: r.attendanceScore,
+              midtermScore: r.midtermScore,
+              finalScore: r.finalScore,
+              score: r.score,
+            })),
+          };
 
-      try {
-        if (existingGrade) {
-          // Update existing grade via PUT /api/grades/{id}
-          await gradeApi.update(existingGrade.id, {
-            attendanceScore: row.attendanceScore,
-            midtermScore: row.midtermScore,
-            finalScore: row.finalScore,
+          const res = await gradeApi.batchImport(payload);
+
+          if (res.success) {
+            Modal.success({
+              title: 'Nhập điểm thành công!',
+              content: (
+                <div style={{ marginTop: 8 }}>
+                  <p>
+                    ✓ <strong style={{ color: '#16A34A' }}>{res.createdCount}</strong> bản ghi mới đã được tạo.
+                  </p>
+                  <p>
+                    ✓ <strong style={{ color: '#2563EB' }}>{res.updatedCount}</strong> bản ghi đã được cập nhật thành công.
+                  </p>
+                  <p style={{ color: '#64748B', fontSize: 13, marginTop: 8 }}>
+                    Điểm trung bình và xếp loại học thuật đã được hệ thống tự động tính toán lại.
+                  </p>
+                </div>
+              ),
+              okText: 'Xem bảng điểm',
+              onOk: () => {
+                setSelectedSubject(importSubject);
+                setSelectedSemester(importSemester);
+                setActiveTab('bySubject');
+                setParsedRows([]);
+                setUploadedFileName('');
+              },
+            });
+
+            // Invalidate React Query cache to refresh UI
+            queryClient.invalidateQueries({ queryKey: ['classGrades', importClassId] });
+            queryClient.invalidateQueries({ queryKey: ['classGrades', selectedClassId] });
+
+            setParsedRows([]);
+            setUploadedFileName('');
+          } else {
+            Modal.error({
+              title: 'Nhập điểm không thành công',
+              content: (
+                <div>
+                  <p>Hệ thống đã hủy bỏ giao dịch do phát hiện {res.failedCount} lỗi:</p>
+                  <ul style={{ paddingLeft: 20, color: '#DC2626' }}>
+                    {res.errors.slice(0, 5).map((e, idx) => (
+                      <li key={idx}>
+                        Dòng {e.rowNumber}: {e.message}
+                      </li>
+                    ))}
+                  </ul>
+                  {res.errors.length > 5 && <p>... và {res.errors.length - 5} lỗi khác.</p>}
+                </div>
+              ),
+            });
+          }
+        } catch (err: any) {
+          const errorMsg =
+            err.response?.data?.errors?.[0]?.message ||
+            err.response?.data?.error ||
+            err.message ||
+            'Có lỗi xảy ra khi import điểm';
+          Modal.error({
+            title: 'Lỗi trong quá trình Import',
+            content: errorMsg,
           });
-          successCount++;
-        } else {
-          // If grade doesn't exist yet, try to create via POST /api/grades
-          await gradeApi.create({
-            studentId: row.studentId,
-            subjectCode: importSubject,
-            semester: importSemester,
-            attendanceScore: row.attendanceScore,
-            midtermScore: row.midtermScore,
-            finalScore: row.finalScore,
-          });
-          successCount++;
+        } finally {
+          setIsImporting(false);
+          setImportProgress(null);
         }
-      } catch (err) {
-        failCount++;
-        failedStudentIds.push(row.studentId);
-      }
-    }
-
-    setIsImporting(false);
-    setImportProgress(null);
-
-    // Refresh class grades
-    queryClient.invalidateQueries({ queryKey: ['classGrades', selectedClassId] });
-
-    if (failCount === 0) {
-      Modal.success({
-        title: 'Nhập điểm hoàn tất',
-        content: `Đã cập nhật thành công điểm cho toàn bộ ${successCount} học sinh vào hệ thống.`,
-        okText: 'Xem bảng điểm ngay',
-        onOk: () => {
-          setSelectedSubject(importSubject);
-          setSelectedSemester(importSemester);
-          setActiveTab('bySubject');
-          setParsedRows([]);
-          setUploadedFileName('');
-        },
-      });
-    } else {
-      Modal.warning({
-        title: 'Nhập điểm hoàn tất một phần',
-        content: `Cập nhật thành công ${successCount} học sinh. Có ${failCount} học sinh bị lỗi (Mã HS: ${failedStudentIds.join(', ')}).`,
-        okText: 'Đóng',
-      });
-    }
+      },
+    });
   };
 
   // Helper renderers
@@ -921,97 +1182,151 @@ export const GradeManagementPage: React.FC = () => {
   ];
 
   // Tab 3: Excel Preview Columns
-  const previewColumns = [
-    {
-      title: 'Dòng',
-      dataIndex: 'rowIndex',
-      key: 'rowIndex',
-      width: 60,
-      align: 'center' as const,
-    },
-    {
-      title: 'StudentID',
-      dataIndex: 'studentId',
-      key: 'studentId',
-      width: 95,
-      align: 'center' as const,
-      render: (id: number) => <Tag color="blue">#{id}</Tag>,
-    },
-    {
-      title: 'Tên học sinh',
-      dataIndex: 'studentName',
-      key: 'studentName',
-      width: 180,
-      render: (name: string) => <strong>{name}</strong>,
-    },
-    {
-      title: 'Chuyên cần',
-      dataIndex: 'attendanceScore',
-      key: 'attendanceScore',
-      width: 110,
-      align: 'center' as const,
-      render: (val: number | null) => (val !== null ? val.toFixed(1) : <Text type="secondary">—</Text>),
-    },
-    {
-      title: 'Giữa kỳ',
-      dataIndex: 'midtermScore',
-      key: 'midtermScore',
-      width: 100,
-      align: 'center' as const,
-      render: (val: number | null) => (val !== null ? val.toFixed(1) : <Text type="secondary">—</Text>),
-    },
-    {
-      title: 'Cuối kỳ',
-      dataIndex: 'finalScore',
-      key: 'finalScore',
-      width: 100,
-      align: 'center' as const,
-      render: (val: number | null) => (val !== null ? val.toFixed(1) : <Text type="secondary">—</Text>),
-    },
-    {
-      title: 'TB dự kiến',
-      dataIndex: 'predictedAverage',
-      key: 'predictedAverage',
-      width: 110,
-      align: 'center' as const,
-      render: (val: number | null) =>
-        val !== null ? (
-          <Tag color="cyan" style={{ fontWeight: 600 }}>
-            {val.toFixed(1)}
-          </Tag>
-        ) : (
-          '—'
+  const previewColumns = useMemo(() => {
+    const cols: any[] = [
+      {
+        title: 'Dòng',
+        dataIndex: 'rowIndex',
+        key: 'rowIndex',
+        width: 65,
+        align: 'center' as const,
+      },
+      {
+        title: 'Mã HS',
+        dataIndex: 'studentId',
+        key: 'studentId',
+        width: 100,
+        align: 'center' as const,
+        render: (id: number, record: ParsedExcelRow) => (
+          <Tag color="blue">{record.studentCode || `#${id}`}</Tag>
         ),
-    },
-    {
-      title: 'Trạng thái',
-      dataIndex: 'isValid',
-      key: 'isValid',
-      width: 110,
-      align: 'center' as const,
-      render: (isValid: boolean) =>
-        isValid ? (
-          <Tag color="success" icon={<CheckCircleOutlined />}>
-            HỢP LỆ
-          </Tag>
-        ) : (
-          <Tag color="error" icon={<CloseCircleOutlined />}>
-            LỖI
-          </Tag>
-        ),
-    },
-    {
-      title: 'Chi tiết lỗi / Ghi chú',
-      dataIndex: 'errors',
-      key: 'errors',
-      render: (errors: string[]) =>
-        errors.length > 0 ? (
-          <span style={{ color: '#DC2626', fontSize: 12 }}>{errors.join('; ')}</span>
-        ) : (
-          <span style={{ color: '#16A34A', fontSize: 12 }}>Đã sẵn sàng cập nhật</span>
-        ),
-    },
-  ];
+      },
+      {
+        title: 'Học sinh',
+        dataIndex: 'studentName',
+        key: 'studentName',
+        width: 170,
+        render: (name: string) => <strong>{name}</strong>,
+      },
+      {
+        title: 'Môn',
+        dataIndex: 'subjectName',
+        key: 'subjectName',
+        width: 120,
+        render: (name: string, record: ParsedExcelRow) => name || record.subjectCode,
+      },
+      {
+        title: 'HK',
+        dataIndex: 'semester',
+        key: 'semester',
+        width: 70,
+        align: 'center' as const,
+        render: (sem: number) => `HK${sem}`,
+      },
+    ];
+
+    if (importMode === 'ALL') {
+      cols.push(
+        {
+          title: 'Chuyên cần',
+          dataIndex: 'attendanceScore',
+          key: 'attendanceScore',
+          width: 95,
+          align: 'center' as const,
+          render: (val: number | null) => (val !== null ? val.toFixed(1) : <Text type="secondary">—</Text>),
+        },
+        {
+          title: 'Giữa kỳ',
+          dataIndex: 'midtermScore',
+          key: 'midtermScore',
+          width: 90,
+          align: 'center' as const,
+          render: (val: number | null) => (val !== null ? val.toFixed(1) : <Text type="secondary">—</Text>),
+        },
+        {
+          title: 'Cuối kỳ',
+          dataIndex: 'finalScore',
+          key: 'finalScore',
+          width: 90,
+          align: 'center' as const,
+          render: (val: number | null) => (val !== null ? val.toFixed(1) : <Text type="secondary">—</Text>),
+        },
+        {
+          title: 'TB dự kiến',
+          dataIndex: 'predictedAverage',
+          key: 'predictedAverage',
+          width: 95,
+          align: 'center' as const,
+          render: (val: number | null) =>
+            val !== null ? (
+              <Tag color="cyan" style={{ fontWeight: 600 }}>
+                {val.toFixed(2)}
+              </Tag>
+            ) : (
+              <Text type="secondary">—</Text>
+            ),
+        }
+      );
+    } else {
+      cols.push({
+        title: examType === 'MIDTERM' ? 'Điểm Giữa kỳ' : 'Điểm Cuối kỳ',
+        dataIndex: 'score',
+        key: 'score',
+        width: 125,
+        align: 'center' as const,
+        render: (val: number | null) =>
+          val !== null ? (
+            <strong style={{ color: '#2563EB', fontSize: 14 }}>{val.toFixed(1)}</strong>
+          ) : (
+            <Text type="secondary">—</Text>
+          ),
+      });
+    }
+
+    cols.push(
+      {
+        title: 'Loại thao tác',
+        dataIndex: 'isUpdate',
+        key: 'isUpdate',
+        width: 110,
+        align: 'center' as const,
+        render: (isUpdate: boolean) =>
+          isUpdate ? <Tag color="orange">Cập nhật</Tag> : <Tag color="green">Bản ghi mới</Tag>,
+      },
+      {
+        title: 'Trạng thái',
+        dataIndex: 'isValid',
+        key: 'isValid',
+        width: 110,
+        align: 'center' as const,
+        render: (isValid: boolean) =>
+          isValid ? (
+            <Tag color="success" icon={<CheckCircleOutlined />}>
+              HỢP LỆ
+            </Tag>
+          ) : (
+            <Tag color="error" icon={<CloseCircleOutlined />}>
+              LỖI
+            </Tag>
+          ),
+      },
+      {
+        title: 'Chi tiết lỗi / Ghi chú',
+        dataIndex: 'errors',
+        key: 'errors',
+        render: (errors: string[], record: ParsedExcelRow) =>
+          errors.length > 0 ? (
+            <span style={{ color: '#DC2626', fontSize: 12, fontWeight: 500 }}>{errors.join('; ')}</span>
+          ) : (
+            <span style={{ color: '#16A34A', fontSize: 12 }}>
+              {record.isUpdate ? 'Sẵn sàng cập nhật điểm' : 'Sẵn sàng tạo mới điểm'}
+            </span>
+          ),
+      }
+    );
+
+    return cols;
+  }, [importMode, examType]);
 
   return (
     <div style={{ maxWidth: 1400, margin: '0 auto' }}>
@@ -1279,20 +1594,18 @@ export const GradeManagementPage: React.FC = () => {
                       marginBottom: 20,
                     }}
                   >
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        flexWrap: 'wrap',
-                        gap: 16,
-                      }}
-                    >
-                      <Space wrap size={16}>
-                        {/* Target Class */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <Text strong style={{ fontSize: 13 }}>
-                            Lớp cần nhập:
+                    <div style={{ marginBottom: 16 }}>
+                      <Title level={5} style={{ margin: 0, color: '#0F172A', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                        Nhập điểm từ Excel
+                      </Title>
+                    </div>
+
+                    <Row gutter={[24, 16]} align="middle">
+                      {/* Lớp */}
+                      <Col xs={24} sm={12} md={6}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <Text strong style={{ fontSize: 13, color: '#334155' }}>
+                            Lớp:
                           </Text>
                           <Select
                             value={importClassId}
@@ -1302,73 +1615,157 @@ export const GradeManagementPage: React.FC = () => {
                               setParsedRows([]);
                               setUploadedFileName('');
                             }}
-                            style={{ width: 140 }}
+                            style={{ width: '100%' }}
                             options={classes.map((c) => ({
                               value: c.id,
                               label: `Lớp ${c.className}`,
                             }))}
                           />
                         </div>
+                      </Col>
 
-                        {/* Target Subject */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <Text strong style={{ fontSize: 13 }}>
-                            Môn học:
+                      {/* Chế độ */}
+                      <Col xs={24} sm={12} md={12}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          <Text strong style={{ fontSize: 13, color: '#334155' }}>
+                            Chế độ nhập:
                           </Text>
-                          <Select
-                            value={importSubject}
-                            onChange={(val) => {
-                              setImportSubject(val);
+                          <Radio.Group
+                            value={importMode}
+                            onChange={(e) => {
+                              setImportMode(e.target.value);
                               setParsedRows([]);
+                              setUploadedFileName('');
                             }}
-                            style={{ width: 170 }}
-                            options={subjects.map((s) => ({
-                              value: s.code,
-                              label: s.name,
-                            }))}
-                          />
+                          >
+                            <Radio value="EXAM">Nhập điểm thi</Radio>
+                            <Radio value="ALL">Nhập toàn bộ bảng điểm</Radio>
+                          </Radio.Group>
                         </div>
+                      </Col>
+                    </Row>
 
-                        {/* Target Semester */}
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <Text strong style={{ fontSize: 13 }}>
-                            Học kỳ:
-                          </Text>
-                          <Select
-                            value={importSemester}
-                            onChange={(val) => {
-                              setImportSemester(val);
-                              setParsedRows([]);
-                            }}
-                            style={{ width: 120 }}
-                            options={[
-                              { value: 1, label: 'Học kỳ 1' },
-                              { value: 2, label: 'Học kỳ 2' },
-                            ]}
-                          />
-                        </div>
-                      </Space>
+                    <Divider style={{ margin: '16px 0' }} />
 
-                      {/* Button Download Templates */}
-                      <Space wrap size={10}>
-                        <Button
-                          type="default"
-                          icon={<DownloadOutlined />}
-                          onClick={handleDownloadTemplate}
-                          style={{ fontWeight: 500 }}
-                        >
-                          Tải file Excel mẫu trống
-                        </Button>
-                        <Button
-                          type="primary"
-                          icon={<DownloadOutlined />}
-                          onClick={handleDownloadFilledSample}
-                          style={{ fontWeight: 500, backgroundColor: '#059669' }}
-                        >
-                          Tải file có sẵn điểm hợp lệ (25 HS)
-                        </Button>
-                      </Space>
-                    </div>
+                    {/* Mode-specific controls */}
+                    {importMode === 'EXAM' ? (
+                      <Row gutter={[20, 16]} align="bottom">
+                        <Col xs={24} sm={12} md={6}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <Text strong style={{ fontSize: 13, color: '#334155' }}>
+                              Môn học:
+                            </Text>
+                            <Select
+                              value={importSubject}
+                              onChange={(val) => {
+                                setImportSubject(val);
+                                setParsedRows([]);
+                                setUploadedFileName('');
+                              }}
+                              style={{ width: '100%' }}
+                              options={availableSubjects.map((s) => ({
+                                value: s.code,
+                                label: s.name,
+                              }))}
+                            />
+                          </div>
+                        </Col>
+
+                        <Col xs={12} sm={6} md={4}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <Text strong style={{ fontSize: 13, color: '#334155' }}>
+                              Học kỳ:
+                            </Text>
+                            <Select
+                              value={importSemester}
+                              onChange={(val) => {
+                                setImportSemester(val);
+                                setParsedRows([]);
+                                setUploadedFileName('');
+                              }}
+                              style={{ width: '100%' }}
+                              options={[
+                                { value: 1, label: 'HK1' },
+                                { value: 2, label: 'HK2' },
+                              ]}
+                            />
+                          </div>
+                        </Col>
+
+                        <Col xs={12} sm={6} md={5}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <Text strong style={{ fontSize: 13, color: '#334155' }}>
+                              Loại điểm:
+                            </Text>
+                            <Select
+                              value={examType}
+                              onChange={(val) => {
+                                setExamType(val);
+                                setParsedRows([]);
+                                setUploadedFileName('');
+                              }}
+                              style={{ width: '100%' }}
+                              options={[
+                                { value: 'MIDTERM', label: 'Giữa kỳ' },
+                                { value: 'FINAL', label: 'Cuối kỳ' },
+                              ]}
+                            />
+                          </div>
+                        </Col>
+
+                        <Col xs={24} md={9} style={{ textAlign: 'right' }}>
+                          <Space wrap>
+                            <Button
+                              type="default"
+                              icon={<DownloadOutlined />}
+                              onClick={handleDownloadTemplate}
+                              style={{ fontWeight: 500 }}
+                            >
+                              Tải Excel mẫu (Điểm thi)
+                            </Button>
+                            <Button
+                              type="dashed"
+                              icon={<DownloadOutlined />}
+                              onClick={handleDownloadFilledSample}
+                              style={{ fontWeight: 500 }}
+                            >
+                              Tải mẫu có sẵn điểm
+                            </Button>
+                          </Space>
+                        </Col>
+                      </Row>
+                    ) : (
+                      <Row gutter={[20, 16]} align="middle" justify="space-between">
+                        <Col xs={24} md={14}>
+                          <div style={{ color: '#64748B', fontSize: 13 }}>
+                            <p style={{ margin: '0 0 4px 0' }}>
+                              <strong>Chế độ toàn bộ bảng điểm:</strong> File Excel chứa toàn bộ các cột điểm thành phần.
+                            </p>
+                            <code>StudentID | StudentName | Subject | Semester | Attendance | Midterm | Final</code>
+                          </div>
+                        </Col>
+                        <Col xs={24} md={10} style={{ textAlign: 'right' }}>
+                          <Space wrap>
+                            <Button
+                              type="default"
+                              icon={<DownloadOutlined />}
+                              onClick={handleDownloadTemplate}
+                              style={{ fontWeight: 500 }}
+                            >
+                              Tải Excel mẫu (Toàn bộ)
+                            </Button>
+                            <Button
+                              type="dashed"
+                              icon={<DownloadOutlined />}
+                              onClick={handleDownloadFilledSample}
+                              style={{ fontWeight: 500 }}
+                            >
+                              Tải mẫu có sẵn điểm
+                            </Button>
+                          </Space>
+                        </Col>
+                      </Row>
+                    )}
                   </Card>
 
                   {/* Step 2: Upload Area */}
@@ -1378,22 +1775,32 @@ export const GradeManagementPage: React.FC = () => {
                       beforeUpload={handleFileUpload}
                       showUploadList={false}
                       style={{
-                        padding: '24px 0',
+                        padding: '28px 0',
                         backgroundColor: '#fff',
                         borderRadius: 12,
                         border: '2px dashed #93C5FD',
                       }}
                     >
                       <p className="ant-upload-drag-icon">
-                        <InboxOutlined style={{ fontSize: 48, color: '#2563EB' }} />
+                        <InboxOutlined style={{ fontSize: 44, color: '#2563EB' }} />
                       </p>
                       <p className="ant-upload-text" style={{ fontSize: 15, fontWeight: 600, color: '#0F172A' }}>
-                        Kéo thả file Excel (.xlsx, .xls) vào đây hoặc bấm để chọn tệp
+                        {uploadedFileName
+                          ? `Tệp đã chọn: ${uploadedFileName} (Bấm hoặc kéo thả tệp khác để thay thế)`
+                          : 'Kéo thả file Excel (.xlsx, .xls) vào đây hoặc bấm để chọn tệp'}
                       </p>
                       <p className="ant-upload-hint" style={{ color: '#64748B', fontSize: 13 }}>
-                        Hệ thống dùng <strong>StudentID</strong> để tự động mapping học sinh trong lớp. File yêu cầu các
-                        cột: <code>StudentID</code>, <code>StudentName</code>, <code>Chuyên cần</code>, <code>Giữa kỳ</code>,{' '}
-                        <code>Cuối kỳ</code>.
+                        {importMode === 'EXAM' ? (
+                          <>
+                            Yêu cầu các cột: <code>StudentID</code> (hoặc Mã HS), <code>StudentName</code>,{' '}
+                            <code>Score</code> (hoặc Điểm).
+                          </>
+                        ) : (
+                          <>
+                            Yêu cầu các cột: <code>StudentID</code>, <code>StudentName</code>, <code>Subject</code>,{' '}
+                            <code>Semester</code>, <code>Attendance</code>, <code>Midterm</code>, <code>Final</code>.
+                          </>
+                        )}
                       </p>
                     </Upload.Dragger>
                   </div>
@@ -1401,35 +1808,96 @@ export const GradeManagementPage: React.FC = () => {
                   {/* Step 3: Validation & Preview */}
                   {parsedRows.length > 0 && (
                     <div>
-                      {/* Summary Row */}
+                      {/* 5 Metrics Cards */}
+                      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+                        <Col xs={12} sm={8} md={4} lg={4}>
+                          <Card size="small" style={{ borderRadius: 8, textAlign: 'center', background: '#F8FAFC' }}>
+                            <Statistic
+                              title="Tổng bản ghi"
+                              value={parsedRows.length}
+                              valueStyle={{ fontSize: 20, fontWeight: 700 }}
+                            />
+                          </Card>
+                        </Col>
+                        <Col xs={12} sm={8} md={5} lg={5}>
+                          <Card size="small" style={{ borderRadius: 8, textAlign: 'center', background: '#F0FDF4' }}>
+                            <Statistic
+                              title="Hợp lệ"
+                              value={parsedRows.filter((r) => r.isValid).length}
+                              valueStyle={{ fontSize: 20, fontWeight: 700, color: '#16A34A' }}
+                            />
+                          </Card>
+                        </Col>
+                        <Col xs={12} sm={8} md={5} lg={5}>
+                          <Card
+                            size="small"
+                            style={{
+                              borderRadius: 8,
+                              textAlign: 'center',
+                              background: parsedRows.some((r) => !r.isValid) ? '#FEF2F2' : '#F8FAFC',
+                            }}
+                          >
+                            <Statistic
+                              title="Lỗi dữ liệu"
+                              value={parsedRows.filter((r) => !r.isValid).length}
+                              valueStyle={{
+                                fontSize: 20,
+                                fontWeight: 700,
+                                color: parsedRows.some((r) => !r.isValid) ? '#DC2626' : '#64748B',
+                              }}
+                            />
+                          </Card>
+                        </Col>
+                        <Col xs={12} sm={8} md={5} lg={5}>
+                          <Card size="small" style={{ borderRadius: 8, textAlign: 'center', background: '#F0F9FF' }}>
+                            <Statistic
+                              title="Bản ghi mới"
+                              value={parsedRows.filter((r) => r.isValid && !r.isUpdate).length}
+                              valueStyle={{ fontSize: 20, fontWeight: 700, color: '#0284C7' }}
+                            />
+                          </Card>
+                        </Col>
+                        <Col xs={12} sm={8} md={5} lg={5}>
+                          <Card size="small" style={{ borderRadius: 8, textAlign: 'center', background: '#FFFBEB' }}>
+                            <Statistic
+                              title="Bản ghi cập nhật"
+                              value={parsedRows.filter((r) => r.isValid && r.isUpdate).length}
+                              valueStyle={{ fontSize: 20, fontWeight: 700, color: '#D97706' }}
+                            />
+                          </Card>
+                        </Col>
+                      </Row>
+
+                      {/* Action Bar */}
                       <div
                         style={{
                           display: 'flex',
                           justifyContent: 'space-between',
                           alignItems: 'center',
                           flexWrap: 'wrap',
-                          gap: 16,
+                          gap: 12,
                           marginBottom: 16,
                         }}
                       >
-                        <Space size={16}>
-                          <Statistic title="Tổng số dòng" value={parsedRows.length} valueStyle={{ fontSize: 18 }} />
-                          <Statistic
-                            title="Hợp lệ"
-                            value={parsedRows.filter((r) => r.isValid).length}
-                            valueStyle={{ fontSize: 18, color: '#16A34A' }}
-                          />
-                          <Statistic
-                            title="Lỗi dữ liệu"
-                            value={parsedRows.filter((r) => !r.isValid).length}
-                            valueStyle={{
-                              fontSize: 18,
-                              color: parsedRows.some((r) => !r.isValid) ? '#DC2626' : '#64748B',
-                            }}
-                          />
-                        </Space>
+                        <div>
+                          {parsedRows.some((r) => !r.isValid) ? (
+                            <Alert
+                              type="error"
+                              showIcon
+                              message="Tệp chứa dữ liệu không hợp lệ"
+                              description="Hệ thống từ chối import khi còn dòng dữ liệu lỗi. Vui lòng kiểm tra dòng báo đỏ bên dưới, sửa lại file và tải lại."
+                            />
+                          ) : (
+                            <Alert
+                              type="success"
+                              showIcon
+                              message="Dữ liệu kiểm tra hoàn toàn hợp lệ"
+                              description={`Toàn bộ ${parsedRows.length} bản ghi đã sẵn sàng (${parsedRows.filter((r) => !r.isUpdate).length} bản ghi mới, ${parsedRows.filter((r) => r.isUpdate).length} bản ghi cập nhật).`}
+                            />
+                          )}
+                        </div>
 
-                        <Space size={10}>
+                        <Space size={12}>
                           {parsedRows.some((r) => !r.isValid) && (
                             <Button danger icon={<DownloadOutlined />} onClick={handleDownloadErrorRows}>
                               Tải danh sách dòng lỗi (.xlsx)
@@ -1466,27 +1934,6 @@ export const GradeManagementPage: React.FC = () => {
                         </div>
                       )}
 
-                      {/* Status Alert */}
-                      {parsedRows.some((r) => !r.isValid) ? (
-                        <Alert
-                          type="error"
-                          showIcon
-                          message="Tệp chứa dữ liệu không hợp lệ"
-                          description="Hệ thống từ chối import khi còn dòng dữ liệu lỗi. Vui lòng kiểm tra các dòng bị báo đỏ bên dưới, sửa lại file và tải lại."
-                          style={{ marginBottom: 16 }}
-                        />
-                      ) : (
-                        <Alert
-                          type="success"
-                          showIcon
-                          message="Dữ liệu kiểm tra hoàn toàn hợp lệ"
-                          description={`Toàn bộ ${parsedRows.length} dòng điểm đã sẵn sàng để lưu vào hệ thống cho môn ${
-                            subjects.find((s) => s.code === importSubject)?.name || importSubject
-                          } (Học kỳ ${importSemester}).`}
-                          style={{ marginBottom: 16 }}
-                        />
-                      )}
-
                       {/* Preview Table */}
                       <Table
                         columns={previewColumns}
@@ -1494,8 +1941,8 @@ export const GradeManagementPage: React.FC = () => {
                         rowKey="rowIndex"
                         size="small"
                         bordered
-                        pagination={{ pageSize: 15 }}
-                        scroll={{ x: 950 }}
+                        pagination={{ pageSize: 20 }}
+                        scroll={{ x: 1000 }}
                         rowClassName={(record) => (!record.isValid ? 'error-table-row' : '')}
                       />
                     </div>

@@ -10,9 +10,10 @@ export interface LeaveRequestDTO {
   adminNote?: string | null;
   studentName: string;
   studentCode: string;
+  className?: string;
 }
 
 export interface UpdateLeaveRequestStatusRequest {
-  status: 'APPROVED' | 'REJECTED';
+  status: 'APPROVED' | 'REJECTED' | 'Đã duyệt' | 'Từ chối' | string;
   adminNote?: string;
 }

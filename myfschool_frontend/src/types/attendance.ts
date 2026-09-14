@@ -108,3 +108,24 @@ export interface AttendanceBatchRequest {
   attendanceDate: string; // LocalDate format: "YYYY-MM-DD"
   items: AttendanceBatchItemDTO[];
 }
+
+export interface UnrecordedAttendanceSessionDTO {
+  scheduleId: number;
+  classId: number;
+  className: string;
+  subjectId?: number;
+  subjectName?: string;
+  teacherId?: number;
+  teacherName?: string;
+  slotNumber: number;
+  startTime?: string;
+  endTime?: string;
+  totalStudents: number;
+  recordedStudents: number;
+  delayMinutes: number;
+  delayFormatted: string;
+  attendanceStatus: 'NOT_ATTENDED' | 'PARTIALLY_ATTENDED';
+  alertStatus: 'CHUA_TRE' | 'CANH_BAO_TRE' | 'QUA_HAN';
+  alertStatusLabel: string;
+  reminderSent: boolean;
+}

@@ -44,7 +44,6 @@ class _HomeScreenState extends State<HomeScreen> {
         : (user?.username ?? 'Người dùng');
     final studentCode = user?.studentCode ?? user?.username ?? 'adnn';
     final className = user?.className ?? 'Lớp 9A1';
-    final isAdmin = user?.role == 'Admin';
     final isTeacher = user?.isTeacher ?? false;
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -71,7 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             className: className,
                           ),
                           const SizedBox(height: 18),
-                          _FeatureSection(isAdmin: isAdmin, isTeacher: isTeacher),
+                          _FeatureSection(isTeacher: isTeacher),
                           const SizedBox(height: 18),
                           const _NoticeHeader(),
                           const SizedBox(height: 12),
@@ -328,23 +327,22 @@ class _BlueSectionBar extends StatelessWidget {
 }
 
 class _FeatureSection extends StatelessWidget {
-  final bool isAdmin;
   final bool isTeacher;
 
-  const _FeatureSection({required this.isAdmin, this.isTeacher = false});
+  const _FeatureSection({this.isTeacher = false});
 
   @override
   Widget build(BuildContext context) {
     final items = [
       _FeatureItemData(
-        label: (isAdmin || isTeacher) ? 'Duyệt đơn' : 'Xem đơn',
+        label: 'Đơn',
         icon: Icons.receipt_long_rounded,
         colors: const [Color(0xFF2DB1F3), Color(0xFF1687D8)],
         onTap: () => Navigator.push(
           context,
           MaterialPageRoute(
             builder: (_) =>
-            (isAdmin || isTeacher) ? const AdminRequestListScreen() : const SendRequestScreen(),
+                isTeacher ? const AdminRequestListScreen() : const SendRequestScreen(),
           ),
         ),
       ),
@@ -402,7 +400,7 @@ class _FeatureSection extends StatelessWidget {
           MaterialPageRoute(builder: (_) => const AttendanceScreen()),
         ),
       ),
-      if (isAdmin || isTeacher)
+      if (isTeacher)
         _FeatureItemData(
           label: 'Báo cáo',
           icon: Icons.analytics_outlined,

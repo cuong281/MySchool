@@ -3,24 +3,23 @@
 class Grade {
   // ── Fields khớp tên camelCase với JSON key từ Spring Boot ─────────────
   // Spring Boot / Jackson tự chuyển tên field Java → JSON key giữ nguyên
-  final int?   id;          // null khi tạo mới (DB tự sinh)
-  final int    studentId;
-  final String studentName;
-  final String className;
-  final String subjectCode;
-  final String subjectName;
-  final String academicYear;
-  final int    semester;
-  final double attendanceScore;
-  final double midtermScore;
-  final double finalScore;
+  final int?    id;          // null khi tạo mới (DB tự sinh)
+  final int     studentId;
+  final String  studentName;
+  final String  className;
+  final String  subjectCode;
+  final String  subjectName;
+  final String  academicYear;
+  final int     semester;
+  final double? attendanceScore;
+  final double? midtermScore;
+  final double? finalScore;
 
-  // 3 field dưới: computed bởi SQL Server, Spring Boot trả về sau save
+  // 3 field dưới: computed bởi Spring Boot / SQL, trả về sau save
   // Không cần gửi lên server khi POST/PUT
-  final double averageScore;
-  final String letterGrade;
-  final double gpa4;
-
+  final double? averageScore;
+  final String? letterGrade;
+  final double? gpa4;
 
   const Grade({
     this.id,                   // optional — null khi ADD mới
@@ -31,16 +30,15 @@ class Grade {
     required this.subjectName,
     required this.academicYear,
     required this.semester,
-    required this.attendanceScore,
-    required this.midtermScore,
-    required this.finalScore,
-    this.averageScore = 0.0,
-    this.letterGrade  = '',
-    this.gpa4         = 0.0,
+    this.attendanceScore,
+    this.midtermScore,
+    this.finalScore,
+    this.averageScore,
+    this.letterGrade,
+    this.gpa4,
   });
 
   // ── fromJson
-
   factory Grade.fromJson(Map<String, dynamic> json) {
     return Grade(
       id:              (json['id']             as num?)?.toInt(),
@@ -51,15 +49,14 @@ class Grade {
       subjectName:      json['subjectName']     as String? ?? '',
       academicYear:     json['academicYear']    as String? ?? '',
       semester:        (json['semester']        as num?)?.toInt()    ?? 1,
-      attendanceScore: (json['attendanceScore'] as num?)?.toDouble() ?? 0.0,
-      midtermScore:    (json['midtermScore']    as num?)?.toDouble() ?? 0.0,
-      finalScore:      (json['finalScore']      as num?)?.toDouble() ?? 0.0,
-      averageScore:    (json['averageScore']    as num?)?.toDouble() ?? 0.0,
-      letterGrade:      json['letterGrade']     as String? ?? '',
-      gpa4:            (json['gpa4']            as num?)?.toDouble() ?? 0.0,
+      attendanceScore: (json['attendanceScore'] as num?)?.toDouble(),
+      midtermScore:    (json['midtermScore']    as num?)?.toDouble(),
+      finalScore:      (json['finalScore']      as num?)?.toDouble(),
+      averageScore:    (json['averageScore']    as num?)?.toDouble(),
+      letterGrade:      json['letterGrade']     as String?,
+      gpa4:            (json['gpa4']            as num?)?.toDouble(),
     );
   }
-
 
   Map<String, dynamic> toJson() {
     return {
@@ -74,9 +71,11 @@ class Grade {
       'attendanceScore': attendanceScore,
       'midtermScore':    midtermScore,
       'finalScore':      finalScore,
+      if (averageScore != null) 'averageScore': averageScore,
+      if (letterGrade != null) 'letterGrade': letterGrade,
+      if (gpa4 != null) 'gpa4': gpa4,
     };
   }
-
 
   Grade copyWith({
     int?    id,
@@ -116,5 +115,5 @@ class Grade {
   @override
   String toString() =>
       'Grade(id:$id, student:$studentName, '
-          'subject:$subjectCode, avg:$averageScore, rank:$letterGrade)';
+      'subject:$subjectCode, avg:$averageScore, rank:$letterGrade)';
 }

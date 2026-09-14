@@ -31,6 +31,9 @@ public interface AttendanceRepository extends JpaRepository<Attendance, Integer>
     List<Attendance> findBySchoolClassIdAndAttendanceDateAndSlotNumber(
             Integer classId, LocalDate date, Integer slotNumber);
 
+    long countBySchoolClassIdAndAttendanceDateAndSlotNumber(
+            Integer classId, LocalDate date, Integer slotNumber);
+
     List<Attendance> findBySchoolClassIdAndAttendanceDateBetweenOrderByAttendanceDateDescSlotNumberDesc(
             Integer classId, LocalDate start, LocalDate end);
 

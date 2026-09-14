@@ -9,6 +9,8 @@ import java.util.List;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Optional;
+
 @Repository
 public interface GradeRepository extends JpaRepository<Grade, Integer> {
     List<Grade> findByStudentId(Integer studentId);
@@ -16,6 +18,8 @@ public interface GradeRepository extends JpaRepository<Grade, Integer> {
     List<Grade> findByStudentSchoolClassIdAndSubjectId(Integer classId, Integer subjectId);
     List<Grade> findByStudentIdAndSemester(Integer studentId, Integer semester);
     boolean existsByStudentIdAndSubjectIdAndSchoolYearIdAndSemester(
+            Integer studentId, Integer subjectId, Integer schoolYearId, Integer semester);
+    Optional<Grade> findByStudentIdAndSubjectIdAndSchoolYearIdAndSemester(
             Integer studentId, Integer subjectId, Integer schoolYearId, Integer semester);
 
     @Query("SELECT g FROM Grade g WHERE " +

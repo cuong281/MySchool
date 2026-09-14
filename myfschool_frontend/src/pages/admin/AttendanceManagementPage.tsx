@@ -17,7 +17,7 @@ import {
   TeamOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { classApi } from '../../api/classApi';
 import { attendanceApi } from '../../api/attendanceApi';
 import type { AttendanceClassHistoryDTO, AttendanceStudentSummaryDTO } from '../../types/attendance';
@@ -26,6 +26,7 @@ import { SessionHistoryTable } from '../../components/attendance/SessionHistoryT
 import { StudentRosterTable } from '../../components/attendance/StudentRosterTable';
 import { AttendanceSheetModal } from '../../components/attendance/AttendanceSheetModal';
 import { StudentAttendanceDrawer } from '../../components/attendance/StudentAttendanceDrawer';
+import { UnrecordedAttendanceSection } from '../../components/attendance/UnrecordedAttendanceSection';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -35,9 +36,12 @@ export const AttendanceManagementPage: React.FC = () => {
   const [selectedClassId, setSelectedClassId] = useState<number | undefined>(undefined);
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null);
 
+  const queryClient = useQueryClient();
+
   // Sheet Modal State
   const [sheetModalConfig, setSheetModalConfig] = useState<{
     open: boolean;
+    classId?: number;
     slotNumber: number;
     subjectId?: number;
     date: string;
@@ -84,9 +88,18 @@ export const AttendanceManagementPage: React.FC = () => {
     enabled: selectedClassId !== undefined && selectedClassId > 0,
   });
 
-  const handleOpenSheet = (slotNumber: number, subjectId?: number, date?: string) => {
+  const handleOpenSheet = (
+    slotNumber: number,
+    subjectId?: number,
+    date?: string,
+    classId?: number
+  ) => {
+    if (classId) {
+      setSelectedClassId(classId);
+    }
     setSheetModalConfig({
       open: true,
+      classId: classId || selectedClassId,
       slotNumber,
       subjectId,
       date: date || dayjs().format('YYYY-MM-DD'),
@@ -181,6 +194,13 @@ export const AttendanceManagementPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Unrecorded Sessions Today Section (School-wide Alert for Admin) */}
+      <UnrecordedAttendanceSection
+        onOpenSheet={(classId, slotNumber, subjectId, date) =>
+          handleOpenSheet(slotNumber, subjectId, date, classId)
+        }
+      />
+
       {/* Main Content Area */}
       {isLoadingClasses ? (
         <div style={{ textAlign: 'center', padding: '80px 0' }}>
@@ -256,15 +276,18 @@ export const AttendanceManagementPage: React.FC = () => {
       ) : null}
 
       {/* Attendance Sheet Modal */}
-      {selectedClassId && (
+      {(sheetModalConfig.classId || selectedClassId) && (
         <AttendanceSheetModal
           open={sheetModalConfig.open}
           onClose={handleCloseSheet}
-          classId={selectedClassId}
+          classId={sheetModalConfig.classId || selectedClassId!}
           slotNumber={sheetModalConfig.slotNumber}
           subjectId={sheetModalConfig.subjectId}
           date={sheetModalConfig.date}
-          onSaved={() => refetchHistory()}
+          onSaved={() => {
+            refetchHistory();
+            queryClient.invalidateQueries({ queryKey: ['unrecordedAttendanceToday'] });
+          }}
         />
       )}
 

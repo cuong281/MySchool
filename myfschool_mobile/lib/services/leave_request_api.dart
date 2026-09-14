@@ -2,8 +2,9 @@ import 'dart:convert';
 import 'package:myfschools/services/api_client.dart';
 
 class LeaveRequestApi {
-  static final LeaveRequestApi instance = LeaveRequestApi._init();
+  static LeaveRequestApi instance = LeaveRequestApi._init();
   LeaveRequestApi._init();
+  LeaveRequestApi();
 
   static const String _endpoint = '${ApiClient.baseUrl}/leave-requests';
 

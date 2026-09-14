@@ -34,6 +34,21 @@ class _LoginScreenState extends State<LoginScreen> {
     final result = await authService.value.login(phone, password);
 
     if (result != null) {
+      final roles = (result['roles'] as List<dynamic>?)?.map((e) => e.toString().toLowerCase()).toList() ?? [];
+      final role = (result['role'] ?? '').toString().toLowerCase();
+      final isAdmin = roles.contains('admin') || roles.contains('role_admin') || role == 'admin';
+
+      if (isAdmin) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Tài khoản Quản trị viên (Admin) vui lòng đăng nhập trên cổng Web Portal.'),
+            backgroundColor: Color(0xFFF26B21),
+          ),
+        );
+        return;
+      }
+
       UserSession.instance.setUser(result);
 
       if (!mounted) return;

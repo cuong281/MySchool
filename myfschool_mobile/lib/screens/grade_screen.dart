@@ -51,7 +51,14 @@ class _GradeScreenState extends State<GradeScreen>
 
     final user = UserSession.instance.currentUser;
     if (user != null && !user.isTeacher && user.role != 'Teacher' && user.role != 'Admin') {
-      _gradesFuture = GradeController.getMyGrades();
+      _gradesFuture = GradeController.getMyGrades().then((grades) {
+        if (mounted && grades.isNotEmpty) {
+          setState(() {
+            _expandedStudentIds.add(grades.first.studentId);
+          });
+        }
+        return grades;
+      });
     }
 
     _loadInitialData();
@@ -118,7 +125,14 @@ class _GradeScreenState extends State<GradeScreen>
         }
       } else {
         // Student: view own grades
-        _gradesFuture = GradeController.getMyGrades();
+        _gradesFuture = GradeController.getMyGrades().then((grades) {
+          if (mounted && grades.isNotEmpty) {
+            setState(() {
+              _expandedStudentIds.add(grades.first.studentId);
+            });
+          }
+          return grades;
+        });
       }
     });
   }
@@ -580,9 +594,10 @@ class _GradeScreenState extends State<GradeScreen>
         ? _calculateAnnualGrades(allGrades)
         : allGrades.where((g) => g.semester == sem).toList();
 
-    double avgGpa = 0.0;
-    if (targetGrades.isNotEmpty) {
-      avgGpa = targetGrades.fold<double>(0.0, (sum, g) => sum + g.averageScore) / targetGrades.length;
+    double? avgGpa;
+    final validGrades = targetGrades.where((g) => g.averageScore != null).toList();
+    if (validGrades.isNotEmpty) {
+      avgGpa = validGrades.fold<double>(0.0, (sum, g) => sum + g.averageScore!) / validGrades.length;
     }
 
     final isHrm = _isCurrentClassHomeroom || isAdmin;
@@ -638,7 +653,7 @@ class _GradeScreenState extends State<GradeScreen>
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Sĩ số: $studentCount học sinh  •  ĐTB: ${avgGpa.toStringAsFixed(2)}  •  Kỳ: $_selectedSemester',
+                  'Sĩ số: $studentCount học sinh  •  ĐTB: ${avgGpa != null ? avgGpa.toStringAsFixed(2) : "Chưa có"}  •  Kỳ: $_selectedSemester',
                   style: const TextStyle(
                     fontSize: 11,
                     color: Color(0xFF64748B),
@@ -867,22 +882,19 @@ class _GradeScreenState extends State<GradeScreen>
 
     final List<Grade> annualGrades = [];
     grouped.forEach((key, list) {
-      Grade? hk1 = list.firstWhere((g) => g.semester == 1, orElse: () => list.first);
-      Grade? hk2 = list.firstWhere((g) => g.semester == 2, orElse: () => list.first);
+      Grade? hk1 = list.cast<Grade?>().firstWhere((g) => g?.semester == 1, orElse: () => null);
+      Grade? hk2 = list.cast<Grade?>().firstWhere((g) => g?.semester == 2, orElse: () => null);
 
-      double annualScore = 0;
-      bool hasHk1 = list.any((g) => g.semester == 1);
-      bool hasHk2 = list.any((g) => g.semester == 2);
-
-      if (hasHk1 && hasHk2) {
-        annualScore = (hk1.averageScore + hk2.averageScore * 2) / 3;
-      } else if (hasHk1) {
-        annualScore = hk1.averageScore;
-      } else if (hasHk2) {
-        annualScore = hk2.averageScore;
+      double? annualScore;
+      if (hk1?.averageScore != null && hk2?.averageScore != null) {
+        annualScore = (hk1!.averageScore! + hk2!.averageScore! * 2) / 3;
+      } else if (hk1?.averageScore != null) {
+        annualScore = hk1!.averageScore;
+      } else if (hk2?.averageScore != null) {
+        annualScore = hk2!.averageScore;
       }
 
-      final base = hasHk2 ? hk2 : hk1;
+      final base = hk2 ?? hk1 ?? list.first;
       annualGrades.add(
         Grade(
           id: base.id,
@@ -892,11 +904,11 @@ class _GradeScreenState extends State<GradeScreen>
           subjectCode: base.subjectCode,
           subjectName: base.subjectName,
           semester: 0,
-          attendanceScore: hk1.averageScore,
-          midtermScore: hk2.averageScore,
+          attendanceScore: hk1?.averageScore,
+          midtermScore: hk2?.averageScore,
           finalScore: annualScore,
           averageScore: annualScore,
-          letterGrade: _getLetterGrade(annualScore),
+          letterGrade: annualScore != null ? _getLetterGrade(annualScore) : null,
           academicYear: base.academicYear,
         ),
       );
@@ -905,12 +917,18 @@ class _GradeScreenState extends State<GradeScreen>
     return annualGrades;
   }
 
-  String _getLetterGrade(double score) {
+  String _getLetterGrade(double? score) {
+    if (score == null) return 'Chưa có';
     if (score >= 9.0) return 'Xuất sắc';
     if (score >= 8.0) return 'Giỏi';
     if (score >= 6.5) return 'Khá';
     if (score >= 5.0) return 'Trung bình';
     return 'Yếu';
+  }
+
+  String _formatScoreText(double? score) {
+    if (score == null) return 'Chưa có';
+    return score.toStringAsFixed(1);
   }
 
   // ── Grade List ──────────────────────────────────────────────────────
@@ -930,8 +948,14 @@ class _GradeScreenState extends State<GradeScreen>
     } else {
       final isDesc = _sortBy == 'GPA: Cao - Thấp';
       studentIds.sort((a, b) {
-        final avgA = grouped[a]!.fold<double>(0.0, (s, g) => s + g.averageScore) / grouped[a]!.length;
-        final avgB = grouped[b]!.fold<double>(0.0, (s, g) => s + g.averageScore) / grouped[b]!.length;
+        final gradesA = grouped[a]!.where((g) => g.averageScore != null).toList();
+        final gradesB = grouped[b]!.where((g) => g.averageScore != null).toList();
+        final avgA = gradesA.isNotEmpty
+            ? gradesA.fold<double>(0.0, (s, g) => s + g.averageScore!) / gradesA.length
+            : 0.0;
+        final avgB = gradesB.isNotEmpty
+            ? gradesB.fold<double>(0.0, (s, g) => s + g.averageScore!) / gradesB.length
+            : 0.0;
         return isDesc ? avgB.compareTo(avgA) : avgA.compareTo(avgB);
       });
     }
@@ -950,8 +974,10 @@ class _GradeScreenState extends State<GradeScreen>
           final studentName = studentGrades.first.studentName;
           final className = studentGrades.first.className;
 
-          final avgGpa = studentGrades.fold<double>(0.0, (sum, g) => sum + g.averageScore) /
-              studentGrades.length;
+          final validGrades = studentGrades.where((g) => g.averageScore != null).toList();
+          final double? avgGpa = validGrades.isNotEmpty
+              ? validGrades.fold<double>(0.0, (sum, g) => sum + g.averageScore!) / validGrades.length
+              : null;
 
           final isExpanded = _expandedStudentIds.contains(sId);
 
@@ -974,7 +1000,7 @@ class _GradeScreenState extends State<GradeScreen>
     required int studentId,
     required String studentName,
     required String className,
-    required double avgGpa,
+    required double? avgGpa,
     required List<Grade> grades,
     required bool isExpanded,
     required bool isSubjectClass,
@@ -1085,7 +1111,7 @@ class _GradeScreenState extends State<GradeScreen>
                       child: Column(
                         children: [
                           Text(
-                            avgGpa.toStringAsFixed(1),
+                            avgGpa != null ? avgGpa.toStringAsFixed(1) : '—',
                             style: TextStyle(
                               fontSize: 15,
                               fontWeight: FontWeight.w900,
@@ -1146,56 +1172,37 @@ class _GradeScreenState extends State<GradeScreen>
                   children: [
                     // Table Header
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                       decoration: BoxDecoration(
                         color: const Color(0xFFE2E8F0).withOpacity(0.6),
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      child: Row(
+                      child: const Row(
                         children: [
-                          const Expanded(
-                            flex: 3,
+                          Expanded(
+                            flex: 5,
                             child: Text(
                               'Môn học',
-                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF475569)),
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF475569)),
                             ),
                           ),
                           Expanded(
+                            flex: 3,
                             child: Text(
-                              _selectedSemester == 'Cả năm' ? 'HK1' : 'CC',
+                              'Điểm tổng kết',
                               textAlign: TextAlign.center,
-                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF475569)),
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF475569)),
                             ),
                           ),
                           Expanded(
-                            child: Text(
-                              _selectedSemester == 'Cả năm' ? 'HK2' : 'GK',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF475569)),
-                            ),
-                          ),
-                          Expanded(
-                            child: Text(
-                              _selectedSemester == 'Cả năm' ? 'T.Kết' : 'CK',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF475569)),
-                            ),
-                          ),
-                          const Expanded(
-                            child: Text(
-                              'TB',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF475569)),
-                            ),
-                          ),
-                          const Expanded(
-                            flex: 2,
+                            flex: 3,
                             child: Text(
                               'Xếp loại',
                               textAlign: TextAlign.center,
-                              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: Color(0xFF475569)),
+                              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: Color(0xFF475569)),
                             ),
                           ),
+                          SizedBox(width: 18),
                         ],
                       ),
                     ),
@@ -1213,104 +1220,247 @@ class _GradeScreenState extends State<GradeScreen>
     );
   }
 
-  // ── Subject Grade Row ───────────────────────────────────────────────
+  // ── Subject Grade Row (Môn học | Điểm tổng kết | Xếp loại) ──────────
   Widget _buildSubjectRow(Grade grade) {
     final avgColor = _getGpaColor(grade.averageScore);
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-      decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: Color(0xFFE2E8F0), width: 0.6),
+    final hasAverage = grade.averageScore != null;
+
+    return InkWell(
+      onTap: () {
+        HapticFeedback.selectionClick();
+        _showSubjectDetailModal(context, grade);
+      },
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        decoration: const BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: Color(0xFFE2E8F0), width: 0.7),
+          ),
+        ),
+        child: Row(
+          children: [
+            // Môn học (flex 5)
+            Expanded(
+              flex: 5,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    grade.subjectName,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF1E293B),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 3),
+                  Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 6,
+                    runSpacing: 2,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          grade.subjectCode,
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Color(0xFF64748B),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      if (grade.midtermScore != null || grade.finalScore != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.check_circle_rounded, size: 10, color: Color(0xFF2563EB)),
+                              const SizedBox(width: 3),
+                              Text(
+                                grade.finalScore != null
+                                    ? 'Đã có điểm CK'
+                                    : 'Đã có điểm GK',
+                                style: const TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF2563EB),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+
+            // Điểm tổng kết (flex 3)
+            Expanded(
+              flex: 3,
+              child: Center(
+                child: hasAverage
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 8),
+                        decoration: BoxDecoration(
+                          color: avgColor.withOpacity(0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          grade.averageScore!.toStringAsFixed(1),
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: avgColor,
+                          ),
+                        ),
+                      )
+                    : Container(
+                        padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: const Color(0xFFE2E8F0), width: 0.8),
+                        ),
+                        child: const Text(
+                          'Chưa có',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF94A3B8),
+                          ),
+                        ),
+                      ),
+              ),
+            ),
+
+            // Xếp loại (flex 3)
+            Expanded(
+              flex: 3,
+              child: Center(
+                child: (grade.letterGrade != null && grade.letterGrade!.isNotEmpty)
+                    ? Container(
+                        padding: const EdgeInsets.symmetric(vertical: 3, horizontal: 6),
+                        decoration: BoxDecoration(
+                          color: avgColor.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: avgColor.withOpacity(0.25), width: 0.8),
+                        ),
+                        child: Text(
+                          grade.letterGrade!,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: avgColor,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      )
+                    : const Text(
+                        '—',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF94A3B8),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+              ),
+            ),
+
+            // Chevron icon
+            const Icon(
+              Icons.chevron_right_rounded,
+              size: 18,
+              color: Color(0xFF94A3B8),
+            ),
+          ],
         ),
       ),
-      child: Row(
+    );
+  }
+
+  // ── Modal Chi tiết Môn học (Theo yêu cầu ĐIỂM THI Giữa kỳ & Cuối kỳ) ─
+  void _showSubjectDetailModal(BuildContext context, Grade grade) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => SubjectDetailSheet(grade: grade),
+    );
+  }
+
+  Widget _buildDetailScoreTile({
+    required String title,
+    required String subtitle,
+    required double? score,
+    required Color primaryColor,
+  }) {
+    final hasScore = score != null;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: hasScore ? primaryColor.withOpacity(0.06) : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: hasScore ? primaryColor.withOpacity(0.25) : const Color(0xFFE2E8F0),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            flex: 3,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  grade.subjectName,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF1E293B),
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                Text(
-                  grade.subjectCode,
-                  style: const TextStyle(
-                    fontSize: 9,
-                    color: Color(0xFF94A3B8),
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Text(
-              grade.attendanceScore.toStringAsFixed(1),
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              grade.midtermScore.toStringAsFixed(1),
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              grade.finalScore.toStringAsFixed(1),
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFF334155)),
-            ),
-          ),
-          Expanded(
-            child: Container(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              decoration: BoxDecoration(
-                color: avgColor.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Text(
-                grade.averageScore.toStringAsFixed(1),
-                textAlign: TextAlign.center,
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                title,
                 style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w800,
-                  color: avgColor,
-                ),
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Container(
-              margin: const EdgeInsets.only(left: 4),
-              padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
-              decoration: BoxDecoration(
-                color: avgColor.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(color: avgColor.withOpacity(0.2), width: 0.8),
-              ),
-              child: Text(
-                grade.letterGrade,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 10,
+                  fontSize: 13,
                   fontWeight: FontWeight.w700,
-                  color: avgColor,
+                  color: hasScore ? const Color(0xFF1E293B) : const Color(0xFF64748B),
                 ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
               ),
+              if (hasScore)
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: primaryColor,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            style: const TextStyle(
+              fontSize: 10,
+              color: Color(0xFF94A3B8),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            _formatScoreText(score),
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              color: hasScore ? primaryColor : const Color(0xFF94A3B8),
             ),
           ),
         ],
@@ -1431,11 +1581,458 @@ class _GradeScreenState extends State<GradeScreen>
   }
 
   // ── Color based on GPA ──────────────────────────────────────────────
-  Color _getGpaColor(double score) {
+  Color _getGpaColor(double? score) {
+    if (score == null) return const Color(0xFF64748B);
     if (score >= 9.0) return const Color(0xFF1565C0);
     if (score >= 8.0) return const Color(0xFF059669);
     if (score >= 6.5) return const Color(0xFFD97706);
     if (score >= 5.0) return const Color(0xFFEA580C);
     return const Color(0xFFDC2626);
+  }
+}
+
+// ── Widget Chi tiết Môn học (Hiển thị ĐIỂM THI Giữa kỳ & Cuối kỳ) ────────────
+class SubjectDetailSheet extends StatelessWidget {
+  final Grade grade;
+
+  const SubjectDetailSheet({
+    super.key,
+    required this.grade,
+  });
+
+  static Color getGpaColor(double? score) {
+    if (score == null) return const Color(0xFF64748B);
+    if (score >= 9.0) return const Color(0xFF1565C0);
+    if (score >= 8.0) return const Color(0xFF059669);
+    if (score >= 6.5) return const Color(0xFFD97706);
+    if (score >= 5.0) return const Color(0xFFEA580C);
+    return const Color(0xFFDC2626);
+  }
+
+  static String formatScore(double? score) {
+    if (score == null) return 'Chưa có';
+    return score.toStringAsFixed(1);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final avgColor = getGpaColor(grade.averageScore);
+    final semText = grade.semester == 0
+        ? 'Cả năm'
+        : (grade.semester == 1 ? 'Học kỳ 1 (HK1)' : 'Học kỳ 2 (HK2)');
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+      child: SafeArea(
+        top: false,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Drag handle
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFCBD5E1),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Modal Title & Close Button
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEFF6FF),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.auto_stories_rounded,
+                          size: 20,
+                          color: Color(0xFF1565C0),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      const Text(
+                        'CHI TIẾT MÔN HỌC',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF1E293B),
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close_rounded, size: 22),
+                    color: const Color(0xFF64748B),
+                    onPressed: () => Navigator.pop(context),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+
+              // Subject Title & Meta Card
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFFE2E8F0), width: 1),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            grade.subjectName,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1565C0),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            grade.subjectCode,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Học kỳ: $semText  •  Năm học: ${grade.academicYear}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Summary Average Score Card
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: grade.averageScore != null
+                        ? [avgColor.withOpacity(0.12), avgColor.withOpacity(0.04)]
+                        : [const Color(0xFFF1F5F9), const Color(0xFFF8FAFC)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: grade.averageScore != null
+                        ? avgColor.withOpacity(0.35)
+                        : const Color(0xFFE2E8F0),
+                    width: 1.2,
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Điểm tổng kết',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF475569),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          grade.averageScore != null
+                              ? grade.averageScore!.toStringAsFixed(1)
+                              : 'Chưa có',
+                          style: TextStyle(
+                            fontSize: 26,
+                            fontWeight: FontWeight.w900,
+                            color: grade.averageScore != null
+                                ? avgColor
+                                : const Color(0xFF94A3B8),
+                          ),
+                        ),
+                      ],
+                    ),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        const Text(
+                          'Xếp loại học thuật',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF64748B),
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: grade.averageScore != null
+                                ? avgColor.withOpacity(0.15)
+                                : const Color(0xFFE2E8F0),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: grade.averageScore != null
+                                  ? avgColor.withOpacity(0.3)
+                                  : const Color(0xFFCBD5E1),
+                            ),
+                          ),
+                          child: Text(
+                            (grade.letterGrade != null && grade.letterGrade!.isNotEmpty)
+                                ? grade.letterGrade!
+                                : 'Chưa cập nhật',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: grade.averageScore != null
+                                  ? avgColor
+                                  : const Color(0xFF64748B),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              if (grade.semester == 0) ...[
+                // Section ĐIỂM THEO HỌC KỲ
+                Row(
+                  children: [
+                    const Icon(Icons.calendar_month_rounded, size: 16, color: Color(0xFF1565C0)),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'ĐIỂM TỔNG KẾT THEO HỌC KỲ',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF1E293B),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildTile(
+                        title: 'Tổng kết HK1',
+                        subtitle: 'Hệ số 1',
+                        score: grade.attendanceScore,
+                        primaryColor: const Color(0xFF0284C7),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildTile(
+                        title: 'Tổng kết HK2',
+                        subtitle: 'Hệ số 2',
+                        score: grade.midtermScore,
+                        primaryColor: const Color(0xFF7C3AED),
+                      ),
+                    ),
+                  ],
+                ),
+              ] else ...[
+                // Section ĐIỂM THI
+                Row(
+                  children: [
+                    const Icon(Icons.assignment_turned_in_rounded, size: 16, color: Color(0xFF1565C0)),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'ĐIỂM THI',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF1E293B),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                // Exam score cards: Giữa kỳ & Cuối kỳ
+                Row(
+                  children: [
+                    // Midterm
+                    Expanded(
+                      child: _buildTile(
+                        title: 'Giữa kỳ',
+                        subtitle: 'Hệ số 2',
+                        score: grade.midtermScore,
+                        primaryColor: const Color(0xFF2563EB),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    // Final
+                    Expanded(
+                      child: _buildTile(
+                        title: 'Cuối kỳ',
+                        subtitle: 'Hệ số 3',
+                        score: grade.finalScore,
+                        primaryColor: const Color(0xFF059669),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // Section ĐIỂM THÀNH PHẦN KHÁC (Chuyên cần)
+                Row(
+                  children: [
+                    const Icon(Icons.fact_check_rounded, size: 16, color: Color(0xFF00796B)),
+                    const SizedBox(width: 6),
+                    const Text(
+                      'ĐIỂM THÀNH PHẦN KHÁC',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF1E293B),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                _buildTile(
+                  title: 'Điểm chuyên cần',
+                  subtitle: 'Đánh giá quá trình và tham gia lớp học • Hệ số 1',
+                  score: grade.attendanceScore,
+                  primaryColor: const Color(0xFF00796B),
+                ),
+              ],
+
+              const SizedBox(height: 20),
+
+              // Close button
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF1565C0),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 0,
+                ),
+                child: const Text(
+                  'Đóng',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTile({
+    required String title,
+    required String subtitle,
+    required double? score,
+    required Color primaryColor,
+  }) {
+    final hasScore = score != null;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: hasScore ? primaryColor.withOpacity(0.06) : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: hasScore ? primaryColor.withOpacity(0.25) : const Color(0xFFE2E8F0),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: hasScore ? const Color(0xFF1E293B) : const Color(0xFF64748B),
+                ),
+              ),
+              if (hasScore)
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: primaryColor,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            style: const TextStyle(
+              fontSize: 10,
+              color: Color(0xFF94A3B8),
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            formatScore(score),
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w900,
+              color: hasScore ? primaryColor : const Color(0xFF94A3B8),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

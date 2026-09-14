@@ -29,18 +29,60 @@ class _CreateRequestScreenState extends State<CreateRequestScreen>
   static const _white = Colors.white;
   static const _divider = Color(0xFFE6E6E6);
 
-  final List<_RequestType> _types = const [
-    _RequestType(
-      icon: Icons.event_busy_rounded,
-      title: 'Xin nghỉ học',
-      subtitle: 'Nghỉ trong ngày',
-    ),
-    _RequestType(
-      icon: Icons.calendar_month_rounded,
-      title: 'Xin nghỉ học dài ngày',
-      subtitle: 'Nghỉ nhiều ngày',
-    ),
-  ];
+  bool get _isTeacher => UserSession.instance.currentUser?.isTeacher ?? false;
+
+  List<_RequestType> get _types => _isTeacher
+      ? const [
+          _RequestType(
+            icon: Icons.event_busy_rounded,
+            title: 'Xin nghỉ phép',
+            subtitle: 'Nghỉ trong ngày',
+          ),
+          _RequestType(
+            icon: Icons.calendar_month_rounded,
+            title: 'Xin nghỉ phép dài ngày',
+            subtitle: 'Nghỉ nhiều ngày',
+          ),
+        ]
+      : const [
+          _RequestType(
+            icon: Icons.event_busy_rounded,
+            title: 'Xin nghỉ học',
+            subtitle: 'Nghỉ trong ngày',
+          ),
+          _RequestType(
+            icon: Icons.calendar_month_rounded,
+            title: 'Xin nghỉ học dài ngày',
+            subtitle: 'Nghỉ nhiều ngày',
+          ),
+        ];
+
+  /// Chuẩn hóa lý do: cắt khoảng trắng đầu/cuối và thu gọn chuỗi khoảng trắng liên tiếp thành 1 dấu cách
+  String get _normalizedReason {
+    return _reasonController.text.trim().replaceAll(RegExp(r'\s+'), ' ');
+  }
+
+  /// Số ký tự có nghĩa thực tế (không tính khoảng trắng thừa)
+  int get _effectiveReasonLength => _normalizedReason.length;
+
+  /// Kiểm tra nội dung có chứa chữ cái hoặc chữ số thực sự (tránh người dùng chỉ gõ dấu câu/khoảng trắng)
+  bool get _hasMeaningfulLetters {
+    return RegExp(r'[\p{L}\p{N}]', unicode: true).hasMatch(_normalizedReason);
+  }
+
+  /// Tránh spam lặp lại duy nhất một ký tự (ví dụ: "aaaaaaaaaa" hoặc "..........")
+  bool get _isNotSpamRepeatedChars {
+    final clean = _normalizedReason.replaceAll(' ', '');
+    if (clean.length >= 10 && RegExp(r'^(.)\1+$').hasMatch(clean)) {
+      return false;
+    }
+    return true;
+  }
+
+  /// Trạng thái hợp lệ toàn diện để gửi đơn
+  bool get _isReasonValid {
+    return _effectiveReasonLength >= 10 && _hasMeaningfulLetters && _isNotSpamRepeatedChars;
+  }
 
   @override
   void initState() {
@@ -130,13 +172,25 @@ class _CreateRequestScreenState extends State<CreateRequestScreen>
       return;
     }
 
-    if (reason.isEmpty) {
-      _showError('Vui lòng nhập lý do nghỉ học');
+    final leaveTerm = _isTeacher ? 'nghỉ phép' : 'nghỉ học';
+
+    if (_effectiveReasonLength == 0) {
+      _showError('Vui lòng nhập lý do $leaveTerm (không được để trống)');
       return;
     }
 
-    if (reason.length < 10) {
-      _showError('Lý do phải có ít nhất 10 ký tự');
+    if (_effectiveReasonLength < 10) {
+      _showError('Lý do $leaveTerm cần tối thiểu 10 ký tự có nghĩa (hiện có $_effectiveReasonLength ký tự)');
+      return;
+    }
+
+    if (!_hasMeaningfulLetters) {
+      _showError('Lý do $leaveTerm phải chứa chữ cái hoặc thông tin cụ thể');
+      return;
+    }
+
+    if (!_isNotSpamRepeatedChars) {
+      _showError('Lý do $leaveTerm không hợp lệ, vui lòng không lặp lại một ký tự');
       return;
     }
 
@@ -151,7 +205,7 @@ class _CreateRequestScreenState extends State<CreateRequestScreen>
       requestType: _types[_selectedType].title,
       fromDate: _fromDate,
       toDate: _toDate,
-      reason: reason,
+      reason: _normalizedReason,
     );
 
     if (errorMsg != null) {
@@ -409,9 +463,9 @@ class _CreateRequestScreenState extends State<CreateRequestScreen>
               color: Colors.white.withOpacity(0.2),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Text(
-              'Đang học',
-              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
+            child: Text(
+              _isTeacher ? 'Đang giảng dạy' : 'Đang học',
+              style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Colors.white),
             ),
           ),
         ],
@@ -538,9 +592,9 @@ class _CreateRequestScreenState extends State<CreateRequestScreen>
               controller: _reasonController,
               maxLines: 4,
               style: const TextStyle(fontSize: 14, color: _text, height: 1.5),
-              decoration: const InputDecoration(
-                hintText: 'Nhập lý do nghỉ học...',
-                hintStyle: TextStyle(fontSize: 13, color: _hint),
+              decoration: InputDecoration(
+                hintText: _isTeacher ? 'Nhập lý do xin nghỉ phép...' : 'Nhập lý do nghỉ học...',
+                hintStyle: const TextStyle(fontSize: 13, color: _hint),
                 border: InputBorder.none,
                 isDense: true,
                 contentPadding: EdgeInsets.zero,
@@ -553,25 +607,45 @@ class _CreateRequestScreenState extends State<CreateRequestScreen>
             child: Row(
               children: [
                 Icon(
-                  _reasonController.text.length >= 10
-                      ? Icons.check_circle_rounded
-                      : Icons.info_outline_rounded,
-                  size: 12,
-                  color: _reasonController.text.length >= 10
-                      ? const Color(0xFF4CAF50)
-                      : _hint,
+                  _effectiveReasonLength == 0
+                      ? Icons.info_outline_rounded
+                      : (_isReasonValid
+                          ? Icons.check_circle_rounded
+                          : (_effectiveReasonLength >= 10
+                              ? Icons.warning_amber_rounded
+                              : Icons.edit_note_rounded)),
+                  size: 14,
+                  color: _effectiveReasonLength == 0
+                      ? _hint
+                      : (_isReasonValid
+                          ? const Color(0xFF10B981)
+                          : (_effectiveReasonLength >= 10
+                              ? const Color(0xFFEF4444)
+                              : const Color(0xFFF59E0B))),
                 ),
-                const SizedBox(width: 4),
-                Text(
-                  '${_reasonController.text.length} / 10 ký tự tối thiểu',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: _reasonController.text.length >= 10
-                        ? const Color(0xFF4CAF50)
-                        : _hint.withOpacity(0.8),
-                    fontWeight: _reasonController.text.length >= 10
-                        ? FontWeight.w600
-                        : FontWeight.w400,
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    _effectiveReasonLength == 0
+                        ? '0 / 10 ký tự tối thiểu'
+                        : (!_hasMeaningfulLetters && _effectiveReasonLength >= 10
+                            ? 'Vui lòng nhập lý do có nghĩa (chứa chữ cái)'
+                            : (!_isNotSpamRepeatedChars
+                                ? 'Vui lòng không nhập lặp lại một ký tự'
+                                : (_effectiveReasonLength < 10
+                                    ? '$_effectiveReasonLength / 10 ký tự (cần thêm ${10 - _effectiveReasonLength} ký tự)'
+                                    : '$_effectiveReasonLength / 10 ký tự (Đã đạt yêu cầu)'))),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: _effectiveReasonLength == 0
+                          ? _hint.withOpacity(0.8)
+                          : (_isReasonValid
+                              ? const Color(0xFF059669)
+                              : (_effectiveReasonLength >= 10
+                                  ? const Color(0xFFDC2626)
+                                  : const Color(0xFFD97706))),
+                      fontWeight: _isReasonValid ? FontWeight.w600 : FontWeight.w500,
+                    ),
                   ),
                 ),
               ],
@@ -619,27 +693,41 @@ class _CreateRequestScreenState extends State<CreateRequestScreen>
           Expanded(
             child: GestureDetector(
               onTap: _submitRequest,
-              child: Container(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 200),
                 height: 52,
                 decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [_orange, Color(0xFFFF9A50)],
+                  gradient: LinearGradient(
+                    colors: _isReasonValid
+                        ? const [_orange, Color(0xFFFF9A50)]
+                        : [const Color(0xFFCBD5E1), const Color(0xFF94A3B8)],
                     begin: Alignment.topLeft,
                     end: Alignment.bottomRight,
                   ),
                   borderRadius: BorderRadius.circular(14),
-                  boxShadow: [
-                    BoxShadow(color: _orange.withOpacity(0.4), blurRadius: 14, offset: const Offset(0, 5)),
-                  ],
+                  boxShadow: _isReasonValid
+                      ? [
+                          BoxShadow(color: _orange.withOpacity(0.4), blurRadius: 14, offset: const Offset(0, 5)),
+                        ]
+                      : null,
                 ),
-                child: const Row(
+                child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(Icons.send_rounded, size: 18, color: Colors.white),
-                    SizedBox(width: 8),
+                    Icon(
+                      Icons.send_rounded,
+                      size: 18,
+                      color: _isReasonValid ? Colors.white : const Color(0xFFF1F5F9),
+                    ),
+                    const SizedBox(width: 8),
                     Text(
                       'Gửi đơn',
-                      style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: Colors.white, letterSpacing: 0.3),
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: _isReasonValid ? Colors.white : const Color(0xFFF1F5F9),
+                        letterSpacing: 0.3,
+                      ),
                     ),
                   ],
                 ),

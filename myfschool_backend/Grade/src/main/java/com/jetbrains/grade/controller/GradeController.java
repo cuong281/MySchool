@@ -1,5 +1,7 @@
 package com.jetbrains.grade.controller;
 
+import com.jetbrains.grade.dto.GradeBatchImportRequest;
+import com.jetbrains.grade.dto.GradeBatchImportResponse;
 import com.jetbrains.grade.dto.GradeDTO;
 import com.jetbrains.grade.model.Grade;
 import com.jetbrains.grade.service.GradeService;
@@ -64,6 +66,16 @@ public class GradeController {
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(Map.of("error", e.getMessage()));
         }
+    }
+
+    @PostMapping("/batch-import")
+    @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
+    public ResponseEntity<GradeBatchImportResponse> batchImport(@RequestBody GradeBatchImportRequest request) {
+        GradeBatchImportResponse response = gradeService.batchImport(request);
+        if (!response.isSuccess()) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+        }
+        return ResponseEntity.ok(response);
     }
 
     @PutMapping("/{id}")

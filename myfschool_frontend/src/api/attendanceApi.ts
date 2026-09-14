@@ -4,6 +4,7 @@ import type {
   AttendanceClassHistoryDTO,
   AttendanceRecordDTO,
   AttendanceSheetDTO,
+  UnrecordedAttendanceSessionDTO,
 } from '../types/attendance';
 
 export const attendanceApi = {
@@ -59,6 +60,22 @@ export const attendanceApi = {
   ): Promise<AttendanceRecordDTO[]> => {
     const response = await axiosClient.get<AttendanceRecordDTO[]>(
       `/attendance/student/${studentId}`
+    );
+    return response.data;
+  },
+
+  // Lấy danh sách các buổi học chưa điểm danh hôm nay (Admin)
+  getUnrecordedSessionsToday: async (): Promise<UnrecordedAttendanceSessionDTO[]> => {
+    const response = await axiosClient.get<UnrecordedAttendanceSessionDTO[]>(
+      '/attendance/alerts/unrecorded-today'
+    );
+    return response.data;
+  },
+
+  // Admin kích hoạt quét và gửi nhắc nhở cho giáo viên
+  scanAndRemind: async (): Promise<{ message: string; remindedCount: number }> => {
+    const response = await axiosClient.post<{ message: string; remindedCount: number }>(
+      '/attendance/alerts/scan-and-remind'
     );
     return response.data;
   },

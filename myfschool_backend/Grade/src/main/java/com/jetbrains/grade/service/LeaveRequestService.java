@@ -3,10 +3,12 @@ package com.jetbrains.grade.service;
 import com.jetbrains.grade.model.LeaveRequest;
 import com.jetbrains.grade.model.LeaveRequestStatusHistory;
 import com.jetbrains.grade.model.Student;
+import com.jetbrains.grade.model.Teacher;
 import com.jetbrains.grade.model.User;
 import com.jetbrains.grade.repository.LeaveRequestRepository;
 import com.jetbrains.grade.repository.LeaveRequestStatusHistoryRepository;
 import com.jetbrains.grade.repository.StudentRepository;
+import com.jetbrains.grade.repository.TeacherRepository;
 import com.jetbrains.grade.repository.UserRepository;
 import com.jetbrains.grade.security.SecurityUtils;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +25,7 @@ public class LeaveRequestService {
 
     private final LeaveRequestRepository leaveRequestRepository;
     private final StudentRepository studentRepository;
+    private final TeacherRepository teacherRepository;
     private final UserRepository userRepository;
     private final LeaveRequestStatusHistoryRepository historyRepository;
     private final NotificationService notificationService;
@@ -43,9 +46,26 @@ public class LeaveRequestService {
                 throw new AccessDeniedException("Hoc sinh khong the tao don xin phep thay cho nguoi khac");
             }
             request.setStudent(currentStudent);
+            request.setTeacher(null);
+            if (request.getRequestType() == null || request.getRequestType().isBlank()) {
+                request.setRequestType("Nghỉ học");
+            }
+        } else if (SecurityUtils.isTeacher()) {
+            Teacher currentTeacher = teacherRepository.findByUserId(currentUserId)
+                    .orElseThrow(() -> new IllegalArgumentException("Khong tim thay thong tin giao vien cho tai khoan nay"));
+
+            // Enforce ownership: teacher can only create leave request for themselves
+            if (request.getTeacher() != null && request.getTeacher().getId() != null
+                    && !request.getTeacher().getId().equals(currentTeacher.getId())) {
+                throw new AccessDeniedException("Giao vien khong the tao don xin phep thay cho nguoi khac");
+            }
+            request.setTeacher(currentTeacher);
+            request.setStudent(null);
+            if (request.getRequestType() == null || request.getRequestType().isBlank()) {
+                request.setRequestType("Nghỉ phép");
+            }
         } else if (!SecurityUtils.isAdmin()) {
-            // Teacher cannot create student leave requests unless business rules explicitly allow it
-            throw new AccessDeniedException("Chi co hoc sinh hoac quan tri vien moi duoc phep tao don xin phep");
+            throw new AccessDeniedException("Ban khong co quyen tao don xin phep");
         }
 
         if (request.getFromDate() == null || request.getToDate() == null) {
@@ -60,10 +80,6 @@ public class LeaveRequestService {
             throw new IllegalArgumentException("Lý do xin nghỉ không được để trống và phải có ít nhất 3 ký tự");
         }
 
-        if (request.getRequestType() == null || request.getRequestType().isBlank()) {
-            request.setRequestType("Nghỉ học");
-        }
-
         request.setId(null);
         request.setStatus("Chờ duyệt");
         request.setCreatedAt(LocalDateTime.now());
@@ -72,7 +88,7 @@ public class LeaveRequestService {
     }
 
     public List<LeaveRequest> getByUserId(Integer userId) {
-        // Enforce ownership check at Service layer
+        // Enforce ownership check at Service layer for students
         if (SecurityUtils.isStudent()) {
             Integer currentUserId = SecurityUtils.getCurrentUserId();
             if (!userId.equals(currentUserId)) {
@@ -81,15 +97,28 @@ public class LeaveRequestService {
         }
 
         var studentOpt = studentRepository.findByUserId(userId);
-        if (studentOpt.isEmpty()) return List.of();
-        Student student = studentOpt.get();
-
-        if (!SecurityUtils.isAdmin() && !SecurityUtils.isStudent()) {
-            Integer currentTeacherId = SecurityUtils.getCurrentTeacherId();
-            teacherAssignmentEnforcer.assertCanViewStudentData(currentTeacherId, student);
+        if (studentOpt.isPresent()) {
+            Student student = studentOpt.get();
+            if (!SecurityUtils.isAdmin() && !SecurityUtils.isStudent()) {
+                Integer currentTeacherId = SecurityUtils.getCurrentTeacherId();
+                teacherAssignmentEnforcer.assertCanViewStudentData(currentTeacherId, student);
+            }
+            return leaveRequestRepository.findByStudentIdOrderByCreatedAtDesc(student.getId());
         }
 
-        return leaveRequestRepository.findByStudentIdOrderByCreatedAtDesc(student.getId());
+        var teacherOpt = teacherRepository.findByUserId(userId);
+        if (teacherOpt.isPresent()) {
+            Teacher teacher = teacherOpt.get();
+            if (!SecurityUtils.isAdmin()) {
+                Integer currentTeacherId = SecurityUtils.getCurrentTeacherId();
+                if (currentTeacherId == null || !currentTeacherId.equals(teacher.getId())) {
+                    throw new AccessDeniedException("Ban khong co quyen xem don xin phep cua giao vien khac");
+                }
+            }
+            return leaveRequestRepository.findByTeacherIdOrderByCreatedAtDesc(teacher.getId());
+        }
+
+        return List.of();
     }
 
     public List<LeaveRequest> getMyLeaveRequests() {
@@ -121,7 +150,12 @@ public class LeaveRequestService {
         LeaveRequest request = leaveRequestRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Khong tim thay don voi ID: " + id));
 
-        if (!SecurityUtils.isAdmin()) {
+        if (request.getTeacher() != null) {
+            // Teacher leave requests can ONLY be processed by Admin
+            if (!SecurityUtils.isAdmin()) {
+                throw new AccessDeniedException("Chi quan tri vien moi co quyen duyet don xin phep cua giao vien");
+            }
+        } else if (!SecurityUtils.isAdmin()) {
             Integer currentTeacherId = SecurityUtils.getCurrentTeacherId();
             teacherAssignmentEnforcer.assertCanProcessLeaveRequest(currentTeacherId, request);
         }
@@ -148,11 +182,18 @@ public class LeaveRequestService {
         history.setChangedAt(LocalDateTime.now());
         historyRepository.save(history);
 
-        // Trigger notification to student
+        // Trigger notification to requester (student or teacher)
+        User targetUser = null;
         if (updated.getStudent() != null && updated.getStudent().getUser() != null) {
+            targetUser = updated.getStudent().getUser();
+        } else if (updated.getTeacher() != null && updated.getTeacher().getUser() != null) {
+            targetUser = updated.getTeacher().getUser();
+        }
+
+        if (targetUser != null) {
             try {
                 notificationService.createNotification(
-                        updated.getStudent().getUser(),
+                        targetUser,
                         "Cập nhật đơn xin nghỉ",
                         "Đơn xin nghỉ của bạn đã được chuyển sang trạng thái: " + newStatus,
                         "LEAVE_REQUEST_STATUS",

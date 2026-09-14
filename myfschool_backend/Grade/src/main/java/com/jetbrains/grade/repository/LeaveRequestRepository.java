@@ -13,6 +13,8 @@ public interface LeaveRequestRepository extends JpaRepository<LeaveRequest, Inte
 
     List<LeaveRequest> findByStudentIdOrderByCreatedAtDesc(Integer studentId);
     
+    List<LeaveRequest> findByTeacherIdOrderByCreatedAtDesc(Integer teacherId);
+    
     List<LeaveRequest> findByStatusOrderByCreatedAtDesc(String status);
 
     List<LeaveRequest> findByStudentSchoolClassHomeroomTeacherIdOrderByCreatedAtDesc(Integer teacherId);

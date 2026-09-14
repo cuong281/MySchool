@@ -15,6 +15,7 @@ import java.util.List;
 public class SchoolClassController {
 
     private final SchoolClassRepository schoolClassRepository;
+    private final com.jetbrains.grade.repository.StudentRepository studentRepository;
 
     @GetMapping
     public ResponseEntity<List<SchoolClassDTO>> getAll() {
@@ -23,6 +24,22 @@ public class SchoolClassController {
                         .id(sc.getId())
                         .className(sc.getClassName())
                         .status(sc.getStatus())
+                        .build())
+                .toList();
+        return ResponseEntity.ok(dtos);
+    }
+
+    @GetMapping("/{classId}/students")
+    public ResponseEntity<List<com.jetbrains.grade.dto.StudentDTO>> getStudentsByClass(@PathVariable Integer classId) {
+        List<com.jetbrains.grade.dto.StudentDTO> dtos = studentRepository.findBySchoolClassIdOrderByFullNameAsc(classId).stream()
+                .map(s -> com.jetbrains.grade.dto.StudentDTO.builder()
+                        .id(s.getId())
+                        .studentCode(s.getStudentCode())
+                        .fullName(s.getFullName())
+                        .classId(s.getSchoolClass() != null ? s.getSchoolClass().getId() : null)
+                        .className(s.getSchoolClass() != null ? s.getSchoolClass().getClassName() : "")
+                        .gender(s.getGender())
+                        .dateOfBirth(s.getDateOfBirth())
                         .build())
                 .toList();
         return ResponseEntity.ok(dtos);

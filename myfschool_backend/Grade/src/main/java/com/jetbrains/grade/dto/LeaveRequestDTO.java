@@ -16,4 +16,8 @@ public class LeaveRequestDTO {
     private String adminNote;
     private String studentName;
     private String studentCode;
+    private String className;
+    private Integer teacherId;
+    private String teacherName;
+    private String role;
 }

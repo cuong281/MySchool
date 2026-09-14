@@ -58,6 +58,9 @@ public class AttendanceFeatureTest {
     @Autowired
     private ClassScheduleRepository classScheduleRepository;
 
+    @Autowired
+    private com.jetbrains.grade.controller.AttendanceController attendanceController;
+
     private void authenticateUser(int userId, String username, String roleName, Integer studentId, Integer teacherId) {
         Role role = new Role();
         role.setId(roleName.equals("Admin") ? 1 : (roleName.equals("Teacher") ? 4 : 3));
@@ -418,5 +421,18 @@ public class AttendanceFeatureTest {
         assertEquals("EXCUSED_ABSENCE", updated.getStatus());
         assertEquals(initialCreatorUserId, updated.getRecordedBy().getId(),
                 "RecordedByUserID MUST BE PRESERVED when an attendance record is updated!");
+    }
+
+    @Test
+    public void testAdminAccessToUnrecordedAlerts() {
+        authenticateUser(1, "admin", "Admin", null, null);
+        var res = attendanceController.getUnrecordedAttendanceSessionsToday();
+        assertEquals(200, res.getStatusCode().value());
+        assertNotNull(res.getBody());
+
+        var scanRes = attendanceController.scanAndRemindUnrecordedAttendance();
+        assertEquals(200, scanRes.getStatusCode().value());
+        assertNotNull(scanRes.getBody());
+        assertTrue(scanRes.getBody().containsKey("remindedCount"));
     }
 }

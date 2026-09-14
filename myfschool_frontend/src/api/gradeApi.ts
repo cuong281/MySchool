@@ -1,5 +1,5 @@
 import { axiosClient } from './axiosClient';
-import type { GradeDTO } from '../types/grade';
+import type { GradeDTO, GradeBatchImportRequest, GradeBatchImportResponse } from '../types/grade';
 
 export const gradeApi = {
   getAll: async (): Promise<GradeDTO[]> => {
@@ -29,6 +29,11 @@ export const gradeApi = {
 
   delete: async (id: number): Promise<{ success: boolean }> => {
     const response = await axiosClient.delete<{ success: boolean }>(`/grades/${id}`);
+    return response.data;
+  },
+
+  batchImport: async (data: GradeBatchImportRequest): Promise<GradeBatchImportResponse> => {
+    const response = await axiosClient.post<GradeBatchImportResponse>('/grades/batch-import', data);
     return response.data;
   },
 };
