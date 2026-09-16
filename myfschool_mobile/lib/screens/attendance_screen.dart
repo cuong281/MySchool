@@ -4,8 +4,10 @@ import 'package:myfschools/models/attendance.dart';
 import 'package:myfschools/models/attendance_summary.dart';
 import 'package:myfschools/models/attendance_history_model.dart';
 import 'package:myfschools/models/school_class_model.dart';
+import 'package:myfschools/models/teacher_assignment_model.dart';
 import 'package:myfschools/services/attendance_api.dart';
 import 'package:myfschools/services/school_class_api.dart';
+import 'package:myfschools/services/teacher_assignment_api.dart';
 import 'package:myfschools/services/user_session.dart';
 import 'package:myfschools/screens/attendance_sheet_screen.dart';
 
@@ -38,6 +40,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
   List<SchoolClassModel> _classes = [];
   int? _selectedClassId;
   AttendanceClassHistoryModel? _classHistory;
+  List<TeacherAssignmentModel> _myAssignments = [];
 
   // Tab & Filters for Staff View
   int _selectedTab = 0; // 0: Theo buổi học, 1: Theo học sinh
@@ -51,6 +54,27 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
     return (user?.isTeacher == true) || (user?.isAdmin == true);
   }
 
+  bool get _isCurrentClassHomeroom {
+    final user = UserSession.instance.currentUser;
+    if (user?.isAdmin == true) return true;
+    return _myAssignments.any((a) => a.classId == _selectedClassId && a.isHomeroom);
+  }
+
+  String get _currentClassRoleLabel {
+    final user = UserSession.instance.currentUser;
+    if (user?.isAdmin == true) return 'Quản trị viên';
+    if (_isCurrentClassHomeroom) return 'GV Chủ nhiệm';
+    final subjects = _myAssignments
+        .where((a) => a.classId == _selectedClassId && a.subjectName != null && a.subjectName!.isNotEmpty)
+        .map((a) => a.subjectName!)
+        .toSet()
+        .toList();
+    if (subjects.isNotEmpty) {
+      return 'GV Bộ môn (${subjects.join(', ')})';
+    }
+    return 'GV Bộ môn';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -61,7 +85,26 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
     setState(() => _isLoading = true);
 
     if (_isStaff) {
-      final classes = await SchoolClassApi.instance.getAllClasses();
+      final user = UserSession.instance.currentUser;
+      List<SchoolClassModel> classes = [];
+
+      if (user?.isAdmin == true) {
+        classes = await SchoolClassApi.instance.getAllClasses();
+      } else {
+        final assignments = await TeacherAssignmentApi.instance.getMyAssignments();
+        _myAssignments = assignments;
+        final seenClassIds = <int>{};
+        for (final a in assignments) {
+          if (seenClassIds.add(a.classId)) {
+            classes.add(SchoolClassModel(
+              id: a.classId,
+              className: a.className,
+              status: 'ACTIVE',
+            ));
+          }
+        }
+      }
+
       if (mounted) {
         setState(() {
           _classes = classes;
@@ -185,41 +228,78 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
 
   Widget _buildClassSelector() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: _border),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.school, size: 20, color: _blue),
-          const SizedBox(width: 10),
-          const Text('Chọn lớp:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: DropdownButtonHideUnderline(
-              child: DropdownButton<int>(
-                value: _selectedClassId,
-                isExpanded: true,
-                items: _classes.map((c) {
-                  return DropdownMenuItem<int>(
-                    value: c.id,
-                    child: Text(
-                      'Lớp ${c.className}',
-                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: _blue),
+          Row(
+            children: [
+              const Icon(Icons.school, size: 20, color: _blue),
+              const SizedBox(width: 10),
+              const Text('Chọn lớp:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+              const SizedBox(width: 12),
+              Expanded(
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<int>(
+                    value: _selectedClassId,
+                    isExpanded: true,
+                    items: _classes.map((c) {
+                      return DropdownMenuItem<int>(
+                        value: c.id,
+                        child: Text(
+                          'Lớp ${c.className}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14, color: _blue),
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (newId) {
+                      if (newId != null && newId != _selectedClassId) {
+                        setState(() => _selectedClassId = newId);
+                        _loadClassHistory(newId);
+                      }
+                    },
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_selectedClassId != null && _isStaff) ...[
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: _isCurrentClassHomeroom ? const Color(0xFFEFF6FF) : const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(
+                  color: _isCurrentClassHomeroom ? const Color(0xFFBFDBFE) : const Color(0xFFCBD5E1),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    _isCurrentClassHomeroom ? Icons.verified_user : Icons.menu_book,
+                    size: 13,
+                    color: _isCurrentClassHomeroom ? const Color(0xFF2563EB) : const Color(0xFF475569),
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    _currentClassRoleLabel,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: _isCurrentClassHomeroom ? const Color(0xFF1E40AF) : const Color(0xFF334155),
                     ),
-                  );
-                }).toList(),
-                onChanged: (newId) {
-                  if (newId != null && newId != _selectedClassId) {
-                    setState(() => _selectedClassId = newId);
-                    _loadClassHistory(newId);
-                  }
-                },
+                  ),
+                ],
               ),
             ),
-          ),
+          ],
         ],
       ),
     );
@@ -509,7 +589,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Danh sách buổi học (${filteredSessions.length})',
+              _isCurrentClassHomeroom
+                  ? 'Danh sách buổi học (${filteredSessions.length})'
+                  : 'Danh sách buổi học bộ môn (${filteredSessions.length})',
               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF0F172A)),
             ),
             if (filteredSessions.length < allSessions.length)
@@ -528,7 +610,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> with SingleTickerPr
 
         if (filteredSessions.isEmpty)
           _buildEmptyState(allSessions.isEmpty
-              ? 'Lớp chưa có buổi học nào được điểm danh'
+              ? (_isCurrentClassHomeroom
+                  ? 'Lớp chưa có buổi học nào được điểm danh'
+                  : 'Chưa có buổi điểm danh nào cho bộ môn của bạn trong lớp này')
               : 'Không có buổi học nào phù hợp với bộ lọc')
         else
           ...filteredSessions.map(_buildSessionCard),

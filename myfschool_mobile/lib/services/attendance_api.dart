@@ -55,7 +55,7 @@ class AttendanceApi {
         'slotNumber': slotNumber.toString(),
       };
       if (subjectId != null) params['subjectId'] = subjectId.toString();
-      if (date != null && date.isNotEmpty) params['date'] = date;
+      if (date != null && date.isNotEmpty) params['attendanceDate'] = date;
 
       final uri = Uri.parse('$_endpoint/class/$classId/sheet').replace(queryParameters: params);
       final response = await ApiClient.instance.get(uri);
