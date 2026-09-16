@@ -87,6 +87,7 @@ public class LeaveRequestService {
         return leaveRequestRepository.save(request);
     }
 
+    @Transactional(readOnly = true)
     public List<LeaveRequest> getByUserId(Integer userId) {
         // Enforce ownership check at Service layer for students
         if (SecurityUtils.isStudent()) {
@@ -121,11 +122,13 @@ public class LeaveRequestService {
         return List.of();
     }
 
+    @Transactional(readOnly = true)
     public List<LeaveRequest> getMyLeaveRequests() {
         Integer currentUserId = SecurityUtils.getCurrentUserId();
         return getByUserId(currentUserId);
     }
 
+    @Transactional(readOnly = true)
     public List<LeaveRequest> getAll() {
         if (SecurityUtils.isStudent()) {
             throw new AccessDeniedException("Hoc sinh khong co quyen xem danh sach don xin phep toan truong");

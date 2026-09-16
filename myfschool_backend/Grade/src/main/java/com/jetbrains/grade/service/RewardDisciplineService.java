@@ -1,17 +1,28 @@
 package com.jetbrains.grade.service;
 
+import com.jetbrains.grade.dto.RewardDisciplineCreateRequest;
+import com.jetbrains.grade.model.FileEntity;
 import com.jetbrains.grade.model.RewardDiscipline;
+import com.jetbrains.grade.model.RewardDisciplineType;
+import com.jetbrains.grade.model.SchoolYear;
+import com.jetbrains.grade.model.Student;
 import com.jetbrains.grade.model.Teacher;
+import com.jetbrains.grade.model.User;
+import com.jetbrains.grade.repository.FileRepository;
 import com.jetbrains.grade.repository.RewardDisciplineRepository;
+import com.jetbrains.grade.repository.RewardDisciplineTypeRepository;
 import com.jetbrains.grade.repository.SchoolClassRepository;
+import com.jetbrains.grade.repository.SchoolYearRepository;
 import com.jetbrains.grade.repository.StudentRepository;
 import com.jetbrains.grade.repository.TeacherAssignmentRepository;
 import com.jetbrains.grade.repository.TeacherRepository;
+import com.jetbrains.grade.repository.UserRepository;
 import com.jetbrains.grade.security.SecurityUtils;
 import com.jetbrains.grade.security.TeacherAssignmentEnforcer;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -27,6 +38,10 @@ public class RewardDisciplineService {
     private final SchoolClassRepository schoolClassRepository;
     private final TeacherAssignmentRepository teacherAssignmentRepository;
     private final TeacherAssignmentEnforcer teacherAssignmentEnforcer;
+    private final RewardDisciplineTypeRepository rewardDisciplineTypeRepository;
+    private final SchoolYearRepository schoolYearRepository;
+    private final UserRepository userRepository;
+    private final FileRepository fileRepository;
 
     /**
      * Role-based search:
@@ -34,6 +49,7 @@ public class RewardDisciplineService {
      * - Teacher: Can ONLY view records of students in classes they are homeroom teacher for.
      * - Student: Can ONLY view their own records.
      */
+    @Transactional(readOnly = true)
     public List<RewardDiscipline> search(Integer classId, Integer semester, String type, String schoolYear) {
         List<RewardDiscipline> list;
 
@@ -112,6 +128,7 @@ public class RewardDisciplineService {
         }).collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public List<RewardDiscipline> getByUserId(Integer userId) {
         if (SecurityUtils.isStudent()) {
             Integer currentUserId = SecurityUtils.getCurrentUserId();
@@ -138,14 +155,57 @@ public class RewardDisciplineService {
         return repository.findByStudentIdOrderByIssuedDateDesc(student.getId());
     }
 
+    @Transactional(readOnly = true)
     public List<RewardDiscipline> getAll() {
         return search(null, null, null, null);
     }
 
+    @Transactional(readOnly = true)
     public List<RewardDiscipline> getByClassId(Integer classId) {
         return search(classId, null, null, null);
     }
 
+    @Transactional
+    public RewardDiscipline create(RewardDisciplineCreateRequest req) {
+        if (!SecurityUtils.isAdmin()) {
+            throw new AccessDeniedException("Chi quan tri vien moi co quyen them khen thuong ky luat");
+        }
+
+        Student student = studentRepository.findById(req.getStudentId())
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy thông tin học sinh với ID: " + req.getStudentId()));
+
+        RewardDisciplineType type = rewardDisciplineTypeRepository.findById(req.getTypeId())
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy loại khen thưởng / kỷ luật với ID: " + req.getTypeId()));
+
+        SchoolYear schoolYear = schoolYearRepository.findById(req.getSchoolYearId())
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy năm học với ID: " + req.getSchoolYearId()));
+
+        Integer currentUserId = SecurityUtils.getCurrentUserId();
+        User issuedBy = userRepository.findByIdAndIsActiveTrue(currentUserId)
+                .orElseThrow(() -> new IllegalArgumentException("Không tìm thấy thông tin người thực hiện"));
+
+        FileEntity file = null;
+        if (req.getFileId() != null) {
+            file = fileRepository.findById(req.getFileId()).orElse(null);
+        }
+
+        RewardDiscipline rd = new RewardDiscipline();
+        rd.setStudent(student);
+        rd.setType(type);
+        rd.setSchoolYear(schoolYear);
+        rd.setSemester(req.getSemester());
+        rd.setDecisionNumber(req.getDecisionNumber());
+        rd.setContent(req.getContent());
+        rd.setIssuedDate(req.getIssuedDate());
+        rd.setIssuedBy(issuedBy);
+        rd.setFile(file);
+        rd.setCreatedAt(LocalDateTime.now());
+        rd.setUpdatedAt(LocalDateTime.now());
+
+        return repository.save(rd);
+    }
+
+    @Transactional
     public RewardDiscipline save(RewardDiscipline rd) {
         if (!SecurityUtils.isAdmin()) {
             throw new AccessDeniedException("Chi quan tri vien moi co quyen them khen thuong ky luat");

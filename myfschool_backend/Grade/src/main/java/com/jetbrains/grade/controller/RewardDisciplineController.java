@@ -1,30 +1,75 @@
 package com.jetbrains.grade.controller;
 
+import com.jetbrains.grade.dto.RewardDisciplineCreateRequest;
 import com.jetbrains.grade.dto.RewardDisciplineDTO;
 import com.jetbrains.grade.model.RewardDiscipline;
 import com.jetbrains.grade.service.RewardDisciplineService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
+import com.jetbrains.grade.dto.PageResponse;
+import com.jetbrains.grade.util.PaginationUtils;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+
 @RestController
 @RequestMapping("/api/rewards-discipline")
-@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
+@Tag(name = "Rewards & Discipline", description = "Quản lý và tra cứu khen thưởng, kỷ luật học sinh")
 public class RewardDisciplineController {
 
     private final RewardDisciplineService service;
 
+    @Operation(summary = "Tìm kiếm danh sách khen thưởng / kỷ luật", description = "Admin xem toàn trường; Giáo viên xem lớp chủ nhiệm; Học sinh xem của bản thân. Hỗ trợ lọc theo classId, semester, type, schoolYear. Nếu truyền 'page', kết quả được phân trang (PageResponse); nếu không truyền, trả về List thông thường.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Tìm kiếm thành công"),
+            @ApiResponse(responseCode = "401", description = "Chưa xác thực"),
+            @ApiResponse(responseCode = "403", description = "Không có quyền xem dữ liệu lớp khác")
+    })
     @GetMapping
-    public ResponseEntity<List<RewardDisciplineDTO>> getAll(
+    public ResponseEntity<?> getAll(
+            @Parameter(description = "ID lớp học cần lọc.")
             @RequestParam(required = false) Integer classId,
+            @Parameter(description = "Học kỳ (1 hoặc 2).")
             @RequestParam(required = false) Integer semester,
+            @Parameter(description = "Loại ('Khen thưởng' hoặc 'Kỷ luật').")
             @RequestParam(required = false) String type,
-            @RequestParam(required = false) String schoolYear
+            @Parameter(description = "Năm học (ví dụ: '2023-2024').")
+            @RequestParam(required = false) String schoolYear,
+            @Parameter(description = "Số trang (0-indexed). Nếu không truyền sẽ trả về toàn bộ danh sách.")
+            @RequestParam(required = false) Integer page,
+            @Parameter(description = "Kích thước trang (mặc định 20, tối đa 100).")
+            @RequestParam(required = false) Integer size,
+            @Parameter(description = "Trường sắp xếp.")
+            @RequestParam(required = false) String sort,
+            @Parameter(description = "Hướng sắp xếp (asc hoặc desc).")
+            @RequestParam(required = false, defaultValue = "desc") String direction
     ) {
-        return ResponseEntity.ok(service.search(classId, semester, type, schoolYear).stream().map(this::convertToDTO).toList());
+        List<RewardDisciplineDTO> results = service.search(classId, semester, type, schoolYear).stream()
+                .map(this::convertToDTO)
+                .toList();
+
+        if (page == null) {
+            return ResponseEntity.ok(results);
+        }
+
+        Pageable pageable = PaginationUtils.createPageable(page, size, sort, direction);
+        int start = (int) Math.min(pageable.getOffset(), results.size());
+        int end = Math.min(start + pageable.getPageSize(), results.size());
+        List<RewardDisciplineDTO> pagedContent = results.subList(start, end);
+        Page<RewardDisciplineDTO> pageResult = new PageImpl<>(pagedContent, pageable, results.size());
+
+        return ResponseEntity.ok(PageResponse.fromPage(pageResult));
     }
 
     @GetMapping("/me")
@@ -85,8 +130,8 @@ public class RewardDisciplineController {
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<RewardDiscipline> create(@RequestBody RewardDiscipline rd) {
-        return ResponseEntity.ok(service.save(rd));
+    public ResponseEntity<RewardDisciplineDTO> create(@Valid @RequestBody RewardDisciplineCreateRequest req) {
+        return ResponseEntity.ok(convertToDTO(service.create(req)));
     }
 }
 

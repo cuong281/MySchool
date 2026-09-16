@@ -19,11 +19,11 @@ public class RewardDiscipline {
     @Column(name = "RecordID")
     private Integer id;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "StudentID", nullable = false)
     private Student student;
 
-    @ManyToOne(fetch = FetchType.EAGER)
+    @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "TypeID", nullable = false)
     private RewardDisciplineType type;
 

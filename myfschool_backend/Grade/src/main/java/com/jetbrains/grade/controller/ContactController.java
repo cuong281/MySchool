@@ -9,7 +9,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/contacts")
-@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 public class ContactController {
 

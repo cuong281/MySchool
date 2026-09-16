@@ -200,7 +200,18 @@ public class AttendanceService {
             teacherAssignmentEnforcer.assertCanViewClassAttendance(currentTeacherId, classId);
         }
 
-        return attendanceRepository.findBySchoolClassIdAndAttendanceDateOrderBySlotNumberAsc(classId, date).stream()
+        List<Attendance> records = attendanceRepository.findBySchoolClassIdAndAttendanceDateOrderBySlotNumberAsc(classId, date);
+        if (!SecurityUtils.isAdmin()) {
+            Integer currentTeacherId = SecurityUtils.getCurrentTeacherId();
+            if (!teacherAssignmentEnforcer.isHomeroomTeacher(currentTeacherId, classId)) {
+                java.util.Set<Integer> mySubjectIds = teacherAssignmentEnforcer.getAssignedSubjectIds(currentTeacherId, classId);
+                records = records.stream()
+                        .filter(a -> a.getSubject() != null && mySubjectIds.contains(a.getSubject().getId()))
+                        .toList();
+            }
+        }
+
+        return records.stream()
                 .map(this::mapToDTO)
                 .toList();
     }
@@ -588,6 +599,17 @@ public class AttendanceService {
             records = attendanceRepository.findBySchoolClassIdOrderByAttendanceDateDescSlotNumberDesc(classId);
         }
 
+        Integer currentTeacherId = SecurityUtils.isAdmin() ? null : SecurityUtils.getCurrentTeacherId();
+        boolean isHomeroom = currentTeacherId != null && teacherAssignmentEnforcer.isHomeroomTeacher(currentTeacherId, classId);
+        java.util.Set<Integer> mySubjectIds = java.util.Collections.emptySet();
+        if (!SecurityUtils.isAdmin() && !isHomeroom) {
+            mySubjectIds = teacherAssignmentEnforcer.getAssignedSubjectIds(currentTeacherId, classId);
+            final java.util.Set<Integer> allowedSubjects = mySubjectIds;
+            records = records.stream()
+                    .filter(a -> a.getSubject() != null && allowedSubjects.contains(a.getSubject().getId()))
+                    .toList();
+        }
+
         Map<Integer, TimeSlot> slotMap = timeSlotRepository.findByIsActiveTrueOrderBySlotNumberAsc().stream()
                 .collect(Collectors.toMap(TimeSlot::getSlotNumber, ts -> ts, (k1, k2) -> k1));
 
@@ -658,6 +680,12 @@ public class AttendanceService {
             } else {
                 TimeSlot slot = slotMap.get(slotNum);
                 if (slot != null && slot.getStartTime() != null && now.isBefore(slot.getStartTime())) {
+                    canEdit = false;
+                }
+            }
+
+            if (!SecurityUtils.isAdmin() && !isHomeroom) {
+                if (subj == null || !mySubjectIds.contains(subj.getId())) {
                     canEdit = false;
                 }
             }

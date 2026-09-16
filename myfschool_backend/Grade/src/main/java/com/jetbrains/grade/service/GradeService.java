@@ -15,7 +15,9 @@ import java.util.List;
 import com.jetbrains.grade.dto.GradeBatchImportItemDTO;
 import com.jetbrains.grade.dto.GradeBatchImportRequest;
 import com.jetbrains.grade.dto.GradeBatchImportResponse;
+import com.jetbrains.grade.dto.GradeCreateRequest;
 import com.jetbrains.grade.dto.GradeImportErrorDTO;
+import com.jetbrains.grade.dto.GradeUpdateRequest;
 import com.jetbrains.grade.model.SchoolClass;
 import com.jetbrains.grade.model.SchoolYear;
 import com.jetbrains.grade.model.Subject;
@@ -40,6 +42,7 @@ public class GradeService {
     private final com.jetbrains.grade.security.TeacherAssignmentEnforcer teacherAssignmentEnforcer;
     private final SecurityAuditService auditService;
 
+    @Transactional(readOnly = true)
     public List<Grade> getAll() {
         // Enforce role check: students cannot view all grades in the entire school
         if (SecurityUtils.isStudent()) {
@@ -55,6 +58,22 @@ public class GradeService {
         return gradeRepository.findByTeacherScope(currentTeacherId);
     }
 
+    @Transactional(readOnly = true)
+    public org.springframework.data.domain.Page<Grade> getAll(org.springframework.data.domain.Pageable pageable) {
+        if (SecurityUtils.isStudent()) {
+            throw new AccessDeniedException("Hoc sinh khong co quyen xem danh sach diem toan truong");
+        }
+        if (SecurityUtils.isAdmin()) {
+            return gradeRepository.findAll(pageable);
+        }
+        Integer currentTeacherId = SecurityUtils.getCurrentTeacherId();
+        if (currentTeacherId == null) {
+            throw new AccessDeniedException("Khong tim thay thong tin giao vien hop le");
+        }
+        return gradeRepository.findByTeacherScope(currentTeacherId, pageable);
+    }
+
+    @Transactional(readOnly = true)
     public Optional<Grade> getById(Integer id) {
         Optional<Grade> gradeOpt = gradeRepository.findById(id);
         if (gradeOpt.isEmpty()) {
@@ -77,6 +96,7 @@ public class GradeService {
         return gradeOpt;
     }
 
+    @Transactional(readOnly = true)
     public List<Grade> getByUserId(Integer userId) {
         // Enforce ownership check: student can only query their own user ID
         if (SecurityUtils.isStudent()) {
@@ -110,11 +130,13 @@ public class GradeService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
     public List<Grade> getMyGrades() {
         Integer currentUserId = SecurityUtils.getCurrentUserId();
         return getByUserId(currentUserId);
     }
 
+    @Transactional(readOnly = true)
     public List<Grade> getByClassId(Integer classId) {
         // Students cannot view class-wide grade rosters
         if (SecurityUtils.isStudent()) {
@@ -136,6 +158,40 @@ public class GradeService {
 
         // Subject teacher can only view grades of their assigned subject(s) in this class
         return gradeRepository.findByClassIdAndTeacherSubjectScope(classId, currentTeacherId);
+    }
+
+    @Transactional
+    public Grade create(GradeCreateRequest req) {
+        if (req.getStudentId() == null || req.getSubjectId() == null || req.getSchoolYearId() == null) {
+            throw new IllegalArgumentException("Khong du thong tin: Student, Subject, SchoolYear");
+        }
+
+        Student student = studentRepository.findById(req.getStudentId())
+                .orElseThrow(() -> new IllegalArgumentException("Khong tim thay thong tin hoc sinh cho ID: " + req.getStudentId()));
+        Subject subject = subjectRepository.findById(req.getSubjectId())
+                .orElseThrow(() -> new IllegalArgumentException("Khong tim thay thong tin mon hoc cho ID: " + req.getSubjectId()));
+        SchoolYear schoolYear = schoolYearRepository.findById(req.getSchoolYearId())
+                .orElseThrow(() -> new IllegalArgumentException("Khong tim thay thong tin nam hoc cho ID: " + req.getSchoolYearId()));
+
+        Grade grade = new Grade();
+        grade.setStudent(student);
+        grade.setSubject(subject);
+        grade.setSchoolYear(schoolYear);
+        grade.setSemester(req.getSemester());
+        grade.setAttendanceScore(req.getAttendanceScore() != null ? req.getAttendanceScore() : 0.0);
+        grade.setMidtermScore(req.getMidtermScore() != null ? req.getMidtermScore() : 0.0);
+        grade.setFinalScore(req.getFinalScore() != null ? req.getFinalScore() : 0.0);
+
+        return create(grade);
+    }
+
+    @Transactional
+    public Grade update(Integer id, GradeUpdateRequest req) {
+        Grade grade = new Grade();
+        grade.setAttendanceScore(req.getAttendanceScore());
+        grade.setMidtermScore(req.getMidtermScore());
+        grade.setFinalScore(req.getFinalScore());
+        return update(id, grade);
     }
 
     @Transactional

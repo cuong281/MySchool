@@ -7,6 +7,10 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -14,13 +18,18 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/attendance")
-@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
+@Tag(name = "Attendance", description = "Quản lý điểm danh, báo cáo chuyên cần và nhắc nhở điểm danh")
 public class AttendanceController {
 
     private final AttendanceService attendanceService;
     private final com.jetbrains.grade.service.AttendanceReminderService attendanceReminderService;
 
+    @Operation(summary = "Lấy dữ liệu điểm danh của bản thân (Học sinh)")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Lấy dữ liệu thành công"),
+            @ApiResponse(responseCode = "401", description = "Chưa xác thực")
+    })
     @GetMapping("/me")
     public ResponseEntity<List<AttendanceRecordDTO>> getMyAttendance() {
         return ResponseEntity.ok(attendanceService.getMyAttendance());
@@ -63,7 +72,7 @@ public class AttendanceController {
 
     @PostMapping("/batch")
     @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
-    public ResponseEntity<List<AttendanceRecordDTO>> recordBatchAttendance(@RequestBody AttendanceBatchRequest req) {
+    public ResponseEntity<List<AttendanceRecordDTO>> recordBatchAttendance(@jakarta.validation.Valid @RequestBody AttendanceBatchRequest req) {
         return ResponseEntity.ok(attendanceService.recordBatchAttendance(req));
     }
 
@@ -78,12 +87,8 @@ public class AttendanceController {
 
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'TEACHER')")
-    public ResponseEntity<?> recordAttendance(@RequestBody AttendanceCreateRequest req) {
-        try {
-            return ResponseEntity.status(HttpStatus.CREATED).body(attendanceService.recordAttendance(req));
-        } catch (IllegalArgumentException e) {
-            return ResponseEntity.badRequest().body(java.util.Map.of("error", e.getMessage()));
-        }
+    public ResponseEntity<AttendanceRecordDTO> recordAttendance(@jakarta.validation.Valid @RequestBody AttendanceCreateRequest req) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(attendanceService.recordAttendance(req));
     }
 
     @GetMapping("/alerts/unrecorded-today")

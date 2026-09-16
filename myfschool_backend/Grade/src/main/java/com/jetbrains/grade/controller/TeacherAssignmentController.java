@@ -14,7 +14,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/teachers")
-@CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 public class TeacherAssignmentController {
 

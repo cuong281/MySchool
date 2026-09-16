@@ -37,6 +37,14 @@ public class TeacherAssignmentEnforcer {
                 || teacherAssignmentRepository.existsByTeacherIdAndSchoolClassId(teacherId, classId);
     }
 
+    public java.util.Set<Integer> getAssignedSubjectIds(Integer teacherId, Integer classId) {
+        if (teacherId == null || classId == null) return java.util.Collections.emptySet();
+        return teacherAssignmentRepository.findByTeacherIdAndSchoolClassId(teacherId, classId).stream()
+                .map(ta -> ta.getSubject() != null ? ta.getSubject().getId() : null)
+                .filter(java.util.Objects::nonNull)
+                .collect(java.util.stream.Collectors.toSet());
+    }
+
     public boolean isHomeroomTeacherOfStudent(Integer teacherId, Integer studentId) {
         if (teacherId == null || studentId == null) return false;
         Student student = studentRepository.findById(studentId).orElse(null);
